@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+package bridge;
+
+option go_package = "simplec2/pkg/bridge"; // 根据你的 Go 项目结构调整
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto"; // 用于 Value 和 Map
+
+// TeamServer 暴露给 Listener Service 的 gRPC 服务
+service TeamServerBridgeService {
+  // 处理新 Beacon 的注册请求
+  rpc StageBeacon (StageBeaconRequest) returns (StageBeaconResponse);
+  // 处理已知 Beacon 的心跳并获取任务
+  rpc CheckInBeacon (CheckInBeaconRequest) returns (CheckInBeaconResponse);
+  // 提交 Beacon 的任务执行结果
+  rpc PushBeaconOutput (PushBeaconOutputRequest) returns (PushBeaconOutputResponse);
+  // 获取 Listener 的预设共享密钥
+  rpc GetListenerSharedSecret (GetListenerSharedSecretRequest) returns (GetListenerSharedSecretResponse);
+  // 获取 Beacon 的会话密钥
+  rpc GetBeaconSessionKey (GetBeaconSessionKeyRequest) returns (GetBeaconSessionKeyResponse);
+  // 记录 Listener 事件日志
+  rpc LogListenerEvent (LogListenerEventRequest) returns (LogListenerEventResponse);
+  // 获取用于生成 Beacon 的配置
+  rpc GetBeaconConfig (GetBeaconConfigRequest) returns (GetBeaconConfigResponse);
+}
+
+// --- 消息定义 ---
+
+// Beacon 的核心元数据
+message BeaconMetadata {
+  string beacon_id = 1;      // Beacon 自身的 UUID 或唯一标识符
+  int32 pid = 2;             // 进程 ID
+  string os = 3;             // 操作系统类型 (e.g., "windows", "linux", "darwin")
+  string arch = 4;           // CPU 架构 (e.g., "amd64", "arm64", "x86")
+  string username = 5;       // 当前用户名
+  string hostname = 6;       // 主机名
+  string internal_ip = 7;    // 内部 IP 地址
+  string process_name = 8;   // Beacon 进程名
+  bool is_high_integrity = 9; // 是否在高权限下运行
+  // 可以根据需要添加更多字段，如 OS 版本、内存大小等
+}
+
+// Staging 请求
+message StageBeaconRequest {
+  string listener_name = 1;                 // 处理此请求的 Listener 实例名
+  string remote_addr = 2;                   // Beacon 的来源网络地址
+  google.protobuf.Timestamp timestamp = 3;  // Listener 接收到请求的时间戳
+  BeaconMetadata metadata = 4;              // Listener 解析后的 Beacon 元数据
+  bytes public_key = 5;                     // 可选: Beacon 的公钥，用于加密 SessionKey
+}
+
+// Staging 响应
+message StageBeaconResponse {
+  string assigned_beacon_id = 1;            // TeamServer 确认或分配的 ID
+  bytes session_key = 2;                   // 分配的会话密钥 (可能是原始密钥或用 PublicKey 加密后的)
+  bool session_key_encrypted = 3;         // 指示 session_key 是否已被加密
+  // bytes initial_tasks = 4;              // 可选: 原始未加密的初始任务数据
+}
+
+// CheckIn 请求
+message CheckInBeaconRequest {
+  string beacon_id = 1;                     // 进行心跳的 Beacon ID
+  string listener_name = 2;                 // 处理此请求的 Listener 实例名
+  string remote_addr = 3;                   // Beacon 的来源网络地址
+  google.protobuf.Timestamp timestamp = 4;  // Listener 接收到请求的时间戳
+  // map<string, google.protobuf.Value> update_metadata = 5; // 可选: 需要更新的元数据字段
+}
+
+// Task 结构定义
+message Task {
+  string task_id = 1;     // TeamServer 分配的任务唯一 ID
+  uint32 command_id = 2;  // 指令的操作码
+  bytes arguments = 3;    // 原始未加密参数 (TeamServer 内部格式)
+}
+
+// CheckIn 响应
+message CheckInBeaconResponse {
+  repeated Task tasks = 1; // 原始未加密任务对象列表
+  int32 new_sleep = 2;     // 可选: 新的 sleep 时间 (秒)
+}
+
+// PushOutput 请求
+message PushBeaconOutputRequest {
+  string beacon_id = 1;                     // 回传结果的 Beacon ID
+  string listener_name = 2;                 // 处理此请求的 Listener 实例名
+  string remote_addr = 3;                   // Beacon 的来源网络地址
+  google.protobuf.Timestamp timestamp = 4;  // Listener 接收到请求的时间戳
+  string task_id = 5;                       // 此结果对应的任务 ID
+  uint32 command_id = 6;                    // 执行的指令 ID
+  int32 status = 7;                         // 任务执行状态码 (0 代表成功)
+  bytes output = 8;                         // **已由 Listener 解密** 的原始任务输出数据 (TeamServer 内部格式)
+  string error_message = 9;                 // 如果 status != 0，对应的错误信息
+}
+
+// PushOutput 响应
+message PushBeaconOutputResponse {
+  // 通常为空，表示成功接收。错误通过 gRPC 状态返回。
+}
+
+// 获取 Listener SharedSecret 请求
+message GetListenerSharedSecretRequest {
+  string listener_name = 1;
+}
+
+// 获取 Listener SharedSecret 响应
+message GetListenerSharedSecretResponse {
+  bytes shared_secret = 1;
+}
+
+// 获取 Beacon SessionKey 请求
+message GetBeaconSessionKeyRequest {
+  string beacon_id = 1;
+}
+
+// 获取 Beacon SessionKey 响应
+message GetBeaconSessionKeyResponse {
+  bytes session_key = 1;
+  bool found = 2;         // Beacon 是否存在且活动
+}
+
+// 记录 Listener 日志事件请求
+message LogListenerEventRequest {
+  string listener_name = 1;
+  string level = 2;         // 日志级别 ("INFO", "WARN", "ERROR", "DEBUG")
+  string message = 3;       // 日志消息
+  map<string, string> fields = 4; // 结构化日志字段
+}
+
+// 记录 Listener 日志事件响应
+message LogListenerEventResponse {
+  // 可以为空
+}
+
+// 获取 Beacon 配置请求
+message GetBeaconConfigRequest {
+    string listener_name = 1;
+}
+
+// 获取 Beacon 配置响应
+message GetBeaconConfigResponse {
+    map<string, string> config = 1; // Key-Value 配置对 (例如回连地址, 端口等)
+}

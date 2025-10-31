@@ -1,0 +1,50 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*~
+
+# Databases
+*.db
+*.db-journal
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Keys
+*.key
+
+# Logs
+*.log
+
+# Uploads and Loot
+teamserver/uploads/*
+teamserver/loot/*
+
+# Certs - In a real scenario, you might want to manage these securely, not in git.
+# For this project, we will ignore them to avoid committing sensitive data.
+/teamserver/certs/*
+/listeners/http/certs/*
+
+# Ignore specific config files that may contain secrets
+teamserver/teamserver.yaml
+listeners/http/listener.yaml
+
+# Exclude all local config files and build artifacts
+*.yaml
+bin/
