@@ -3,8 +3,6 @@ package api
 import (
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -100,99 +98,4 @@ func (a *API) CreateBeaconTask(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"data": task})
-}
-
-// GetTask handles the API request to retrieve a single task by its ID.
-func (a *API) GetTask(c *gin.Context) {
-	taskID := c.Param("task_id")
-	task, err := a.Store.GetTask(taskID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"data": task})
-}
-
-// --- Listener Handlers ---
-
-type CreateListenerRequest struct {
-	Name   string `json:"name" binding:"required"`
-	Type   string `json:"type" binding:"required"`
-	Config string `json:"config"`
-}
-
-func (a *API) CreateListener(c *gin.Context) {
-	var req CreateListenerRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	listener := data.Listener{
-		Name:   req.Name,
-		Type:   req.Type,
-		Config: req.Config,
-	}
-
-	if err := a.Store.CreateListener(&listener); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create listener"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{"data": listener})
-}
-
-func (a *API) GetListeners(c *gin.Context) {
-	listeners, err := a.Store.GetListeners()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"data": listeners})
-}
-
-func (a *API) DeleteListener(c *gin.Context) {
-	listenerName := c.Param("name")
-	if err := a.Store.DeleteListener(listenerName); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete listener"})
-		return
-	}
-	c.Status(http.StatusNoContent)
-}
-
-// --- File Handlers ---
-
-func (a *API) UploadFile(c *gin.Context) {
-	file, err := c.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "File not provided"})
-		return
-	}
-
-	filename := uuid.New().String() + "_" + filepath.Base(file.Filename)
-	dst := filepath.Join(a.Config.UploadsDir, filename)
-
-	if err := os.MkdirAll(a.Config.UploadsDir, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create uploads directory"})
-		return
-	}
-
-	if err := c.SaveUploadedFile(file, dst); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"filepath": dst})
-}
-
-func (a *API) DownloadLootFile(c *gin.Context) {
-	filename := filepath.Base(c.Param("filename"))
-	filePath := filepath.Join(a.Config.LootDir, filename)
-
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
-		return
-	}
-
-	c.File(filePath)
 }
