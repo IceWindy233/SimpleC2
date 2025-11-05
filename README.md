@@ -22,10 +22,21 @@ SimpleC2 是一个轻量级、模块化、可扩展的C2框架，其核心设计
 - Node.js (16+)
 - `protoc` 编译器 (如果需要重新生成 gRPC 代码)
 
+### 首次运行：生成所有必需的加密材料
+
+在首次构建或运行任何组件之前，您必须生成所有用于 E2E 加密和 mTLS 通信的密钥与证书。项目提供了一个简化的命令来完成此操作：
+
+```bash
+make generate
+```
+
+此命令将自动生成所有必需的文件，并将它们放置在 `teamserver/certs` 和 `listeners/http/certs` 目录中，同时也会为 `agent` 提供公钥。
+
 ### Makefile 工作流
 
 项目包含一个 `Makefile` 以简化构建流程。
 
+- `make generate`: 生成所有必需的密钥和证书。
 - `make` 或 `make all`: 构建所有组件 (`teamserver`, `listener_http`, 所有 `beacons`)。
 - `make http`: 构建 HTTP listener 及其对应的 beacons。
 - `make teamserver`: 仅构建 TeamServer。
@@ -39,15 +50,11 @@ SimpleC2 是一个轻量级、模块化、可扩展的C2框架，其核心设计
 TeamServer 是 C2 的核心服务器。
 
 - **配置**: 服务器通过 `teamserver.yaml` 文件进行配置。如果运行目录下未找到该文件，将自动生成一个默认文件。您必须编辑此文件以提供您的数据库连接信息和操作员密码。
-
-- **证书**: 在运行 TeamServer 二进制文件之前，您**必须**手动将以下文件放置在与二进制文件相同的目录中：
-  
-  - `ca.crt` (证书颁发机构 (CA) 的证书)
-  - `server.crt` (TeamServer 的 gRPC 服务器证书)
-  - `server.key` (TeamServer 的 gRPC 服务器私钥)
   
 - **如何运行**:
-  将编译好的二进制文件 (位于 `bin/teamserver/`) 和所需的证书放置在一个目录中，进入该目录，然后运行：
+  1.  **构建**: `make teamserver`
+  2.  **复制证书**: 将 `teamserver/certs/` 目录**手动复制**到 `bin/teamserver/` 目录下。
+  3.  **运行**: 进入 `bin/teamserver/` 目录，然后执行：
   
   ```bash
   ./teamserver -config teamserver.yaml
@@ -58,16 +65,11 @@ TeamServer 是 C2 的核心服务器。
 Listener 作为 Beacon 和 TeamServer 之间的桥梁。
 
 - **配置**: Listener 通过 `listener.yaml` 文件进行配置。如果找不到该文件，将自动生成一个默认文件。
-
-- **证书**: 在运行 listener 二进制文件之前，您**必须**手动将以下文件放置在与二进制文件相同的目录中：
-  
-  - `ca.crt` (TeamServer 的 CA 证书)
-  - `client.crt` (由 CA 签名的 listener 客户端证书)
-  - `client.key` (listener 的客户端私钥)
-  - `listener_rsa.key` (用于 Beacon 通信的 listener RSA 私钥)
   
 - **如何运行**:
-  将编译好的二进制文件 (位于 `bin/listener_http/`) 和所需的证书放置在一个目录中，进入该目录，然后运行：
+  1.  **构建**: `make listener-http`
+  2.  **复制证书**: 将 `listeners/http/certs/` 目录**手动复制**到 `bin/listener_http/` 目录下。
+  3.  **运行**: 进入 `bin/listener_http/` 目录，然后执行：
   ```bash
   ./listener_http -config listener.yaml
   ```

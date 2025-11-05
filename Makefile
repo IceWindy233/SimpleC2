@@ -10,6 +10,7 @@ LISTENER_URL ?= http://localhost:8888
 
 # Go build flags
 LDFLAGS_VAR = main.serverURL
+# Add -s -w to strip binaries
 LDFLAGS = -ldflags="-X '$(LDFLAGS_VAR)=$(LISTENER_URL)' -s -w"
 
 # Component binary names
@@ -47,16 +48,18 @@ teamserver: $(BINARY_TS_PATH)
 $(BINARY_TS_PATH): teamserver/*.go teamserver/**/*.go
 	@mkdir -p $(TS_DIR)/loot
 	@mkdir -p $(TS_DIR)/uploads
+	@mkdir -p $(TS_DIR)/certs
 	@echo "Building TeamServer into $(TS_DIR)/"
-	go build -o $@ ./teamserver
+	go build -ldflags="-s -w" -o $@ ./teamserver
 
 .PHONY: listener-http
 listener-http: $(BINARY_LISTENER_HTTP_PATH)
 
 $(BINARY_LISTENER_HTTP_PATH): listeners/http/*.go
 	@mkdir -p $(LISTENER_HTTP_DIR)
+	@mkdir -p $(LISTENER_HTTP_DIR)/certs
 	@echo "Building HTTP Listener into $(LISTENER_HTTP_DIR)/"
-	go build -o $@ ./listeners/http
+	go build -ldflags="-s -w" -o $@ ./listeners/http
 
 .PHONY: beacons-http
 beacons-http: $(BEACON_LINUX_PATH) $(BEACON_WIN_PATH) $(BEACON_DARWIN_PATH)
@@ -78,6 +81,11 @@ $(BEACON_DARWIN_PATH):
 	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $@ ./agents/http
 
 # --- Utility Targets ---
+
+.PHONY: generate-keys
+generate-keys:
+	@echo "Generating all cryptographic materials (E2E keys and mTLS certs)..."
+	@go run ./scripts/generate-keys.go
 
 .PHONY: clean
 clean:

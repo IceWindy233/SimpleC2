@@ -17,11 +17,12 @@ import (
 	"os"
 	"sync"
 
-	"github.com/google/uuid"
-	"gopkg.in/yaml.v3"
 	"simplec2/listeners/common"
 	"simplec2/pkg/bridge"
 	"simplec2/pkg/config"
+
+	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -93,10 +94,10 @@ func generateDefaultConfig(path string) error {
 			CACert     string `yaml:"ca_cert"`
 			PrivateKey string `yaml:"private_key"`
 		}{
-			ClientCert: "client.crt",
-			ClientKey:  "client.key",
-			CACert:     "ca.crt",
-			PrivateKey: "listener_rsa.key",
+			ClientCert: "./certs/client.crt",
+			ClientKey:  "./certs/client.key",
+			CACert:     "./certs/ca.crt",
+			PrivateKey: "./certs/listener_rsa.key",
 		},
 	}
 

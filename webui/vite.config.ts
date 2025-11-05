@@ -9,4 +9,12 @@ export default defineConfig({
       path: 'path-browserify',
     },
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
+  },
 })

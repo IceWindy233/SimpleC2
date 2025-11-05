@@ -9,13 +9,14 @@ import (
 	"net"
 	"os"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"gopkg.in/yaml.v3"
 	"simplec2/pkg/bridge"
 	"simplec2/pkg/config"
 	"simplec2/teamserver/api"
 	"simplec2/teamserver/data"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"gopkg.in/yaml.v3"
 )
 
 var cfg config.TeamServerConfig
@@ -99,9 +100,9 @@ func generateDefaultConfig(path string) error {
 				ServerKey  string "yaml:\"server_key\""
 				CACert     string "yaml:\"ca_cert\""
 			}{
-				ServerCert: "server.crt",
-				ServerKey:  "server.key",
-				CACert:     "ca.crt",
+				ServerCert: "./certs/server.crt",
+				ServerKey:  "./certs/server.key",
+				CACert:     "./certs/ca.crt",
 			},
 		},
 		API: struct {
@@ -118,7 +119,7 @@ func generateDefaultConfig(path string) error {
 			APIKey:           "SimpleC2ListenerAPIKey_CHANGE_ME",
 			OperatorPassword: "SUPER_SECRET_PASSWORD_CHANGE_ME",
 		},
-		LootDir:  "loot",
+		LootDir:    "loot",
 		UploadsDir: "uploads",
 	}
 
