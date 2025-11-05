@@ -39,8 +39,11 @@ func main() {
 	}
 	log.Println("Configuration loaded successfully.")
 
-	// Correctly call InitDB
-	data.InitDB(cfg.Database.DSN)
+	// Initialize the DataStore
+	store, err := data.NewDataStore(cfg.Database)
+	if err != nil {
+		log.Fatalf("Failed to initialize data store: %v", err)
+	}
 	log.Println("Database initialized successfully.")
 
 	creds, err := loadTeamServerCreds(cfg.GRPC.Certs.ServerCert, cfg.GRPC.Certs.ServerKey, cfg.GRPC.Certs.CACert)
@@ -57,8 +60,8 @@ func main() {
 		grpc.MaxRecvMsgSize(100*1024*1024), // 100 MB
 	)
 
-	// Correctly create an instance of the server struct with config
-	s := NewServer(&cfg)
+	// Correctly create an instance of the server struct with config and store
+	s := NewServer(&cfg, store)
 	// Correctly call the registration function with the package prefix
 	bridge.RegisterTeamServerBridgeServiceServer(grpcServer, s)
 
@@ -74,7 +77,7 @@ func main() {
 	}()
 
 	go func() {
-		router := api.NewRouter(&cfg)
+		router := api.NewRouter(&cfg, store)
 		log.Printf("HTTP API server listening on %s", cfg.API.Port)
 		if err := router.Run(cfg.API.Port); err != nil {
 			log.Fatalf("Failed to run HTTP server: %v", err)
@@ -111,9 +114,12 @@ func generateDefaultConfig(path string) error {
 			Port: ":8080",
 		},
 		Database: struct {
-			DSN string `yaml:"dsn"`
+			Type string `yaml:"type"`
+			DSN  string `yaml:"dsn,omitempty"`
+			Path string `yaml:"path,omitempty"`
 		}{
-			DSN: "host=localhost user=postgres password=your_password dbname=simplec2 port=5432 sslmode=disable",
+			Type: "sqlite",
+			Path: "data/simplec2.db",
 		},
 		Auth: config.AuthConfig{
 			APIKey:           "SimpleC2ListenerAPIKey_CHANGE_ME",

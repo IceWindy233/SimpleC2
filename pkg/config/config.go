@@ -19,12 +19,17 @@ type TeamServerConfig struct {
 	API struct {
 		Port string `yaml:"port"`
 	} `yaml:"api"`
-	Database struct {
-		DSN string `yaml:"dsn"`
-	} `yaml:"database"`
-	Auth     AuthConfig `yaml:"auth"`
-	LootDir  string     `yaml:"loot_dir"`
-	UploadsDir string   `yaml:"uploads_dir"`
+	Database DatabaseConfig `yaml:"database"`
+	Auth     AuthConfig     `yaml:"auth"`
+	LootDir  string         `yaml:"loot_dir"`
+	UploadsDir string       `yaml:"uploads_dir"`
+}
+
+// DatabaseConfig holds database-specific configuration.
+type DatabaseConfig struct {
+	Type string `yaml:"type"`           // "postgres" or "sqlite"
+	DSN  string `yaml:"dsn,omitempty"`  // Optional: For Postgres
+	Path string `yaml:"path,omitempty"` // Optional: For SQLite
 }
 
 // AuthConfig holds authentication-related configuration.

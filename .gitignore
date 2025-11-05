@@ -41,7 +41,7 @@ teamserver/loot/*
 certs/*
 /teamserver/certs/*
 /listeners/http/certs/*
-/agents/http/listener.pubs
+/agents/http/listener.pub
 
 # Ignore specific config files that may contain secrets
 teamserver/teamserver.yaml

@@ -4,15 +4,17 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"simplec2/pkg/config"
+	"simplec2/teamserver/data"
 )
 
 // API holds the configuration and dependencies for the API handlers.
 type API struct {
 	Config *config.TeamServerConfig
+	Store  data.DataStore
 }
 
 // NewRouter sets up the API routes and returns the Gin engine.
-func NewRouter(cfg *config.TeamServerConfig) *gin.Engine {
+func NewRouter(cfg *config.TeamServerConfig, store data.DataStore) *gin.Engine {
 	router := gin.Default()
 
 	// Add CORS middleware
@@ -21,7 +23,7 @@ func NewRouter(cfg *config.TeamServerConfig) *gin.Engine {
 	corsConfig.AllowHeaders = append(corsConfig.AllowHeaders, "Authorization")
 	router.Use(cors.New(corsConfig))
 
-	api := &API{Config: cfg}
+	api := &API{Config: cfg, Store: store}
 
 	// Public group for authentication
 	auth := router.Group("/api/auth")

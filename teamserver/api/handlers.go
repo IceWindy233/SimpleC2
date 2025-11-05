@@ -13,10 +13,9 @@ import (
 
 // GetBeacons handles the API request to list all beacons.
 func (a *API) GetBeacons(c *gin.Context) {
-	var beacons []data.Beacon
-	result := data.DB.Find(&beacons)
-	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+	beacons, err := a.Store.GetBeacons()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": beacons})
@@ -25,13 +24,11 @@ func (a *API) GetBeacons(c *gin.Context) {
 // GetBeacon handles the API request to retrieve a single beacon by its ID.
 func (a *API) GetBeacon(c *gin.Context) {
 	beaconID := c.Param("beacon_id")
-	var beacon data.Beacon
-
-	if err := data.DB.Where("beacon_id = ?", beaconID).First(&beacon).Error; err != nil {
+	beacon, err := a.Store.GetBeacon(beaconID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Beacon not found"})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"data": beacon})
 }
 
@@ -39,8 +36,8 @@ func (a *API) GetBeacon(c *gin.Context) {
 func (a *API) DeleteBeacon(c *gin.Context) {
 	beaconID := c.Param("beacon_id")
 
-	var beacon data.Beacon
-	if err := data.DB.Where("beacon_id = ?", beaconID).First(&beacon).Error; err != nil {
+	_, err := a.Store.GetBeacon(beaconID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Beacon not found"})
 		return
 	}
@@ -53,20 +50,13 @@ func (a *API) DeleteBeacon(c *gin.Context) {
 		Status:    "queued",
 	}
 
-	if err := data.DB.Create(&exitTask).Error; err != nil {
+	if err := a.Store.CreateTask(&exitTask); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create exit task for beacon"})
 		return
 	}
 
-	if err := data.DB.Model(&beacon).Update("status", "exiting").Error; err != nil {
-		log.Printf("Error updating beacon status to exiting: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update beacon status"})
-		return
-	}
-
-	result := data.DB.Delete(&beacon)
-	if result.Error != nil {
-		log.Printf("Error soft-deleting beacon %s: %v", beaconID, result.Error)
+	if err := a.Store.DeleteBeacon(beaconID); err != nil {
+		log.Printf("Error soft-deleting beacon %s: %v", beaconID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to soft-delete beacon"})
 		return
 	}
@@ -90,8 +80,8 @@ func (a *API) CreateBeaconTask(c *gin.Context) {
 		return
 	}
 
-	var beacon data.Beacon
-	if err := data.DB.Where("beacon_id = ?", beaconID).First(&beacon).Error; err != nil {
+	_, err := a.Store.GetBeacon(beaconID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Beacon not found"})
 		return
 	}
@@ -104,7 +94,7 @@ func (a *API) CreateBeaconTask(c *gin.Context) {
 		Status:    "queued",
 	}
 
-	if err := data.DB.Create(&task).Error; err != nil {
+	if err := a.Store.CreateTask(&task); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create task"})
 		return
 	}
@@ -115,13 +105,11 @@ func (a *API) CreateBeaconTask(c *gin.Context) {
 // GetTask handles the API request to retrieve a single task by its ID.
 func (a *API) GetTask(c *gin.Context) {
 	taskID := c.Param("task_id")
-	var task data.Task
-
-	if err := data.DB.Where("task_id = ?", taskID).First(&task).Error; err != nil {
+	task, err := a.Store.GetTask(taskID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"data": task})
 }
 
@@ -146,7 +134,7 @@ func (a *API) CreateListener(c *gin.Context) {
 		Config: req.Config,
 	}
 
-	if err := data.DB.Create(&listener).Error; err != nil {
+	if err := a.Store.CreateListener(&listener); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create listener"})
 		return
 	}
@@ -155,10 +143,9 @@ func (a *API) CreateListener(c *gin.Context) {
 }
 
 func (a *API) GetListeners(c *gin.Context) {
-	var listeners []data.Listener
-	result := data.DB.Find(&listeners)
-	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+	listeners, err := a.Store.GetListeners()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": listeners})
@@ -166,18 +153,10 @@ func (a *API) GetListeners(c *gin.Context) {
 
 func (a *API) DeleteListener(c *gin.Context) {
 	listenerName := c.Param("name")
-	result := data.DB.Where("name = ?", listenerName).Delete(&data.Listener{})
-
-	if result.Error != nil {
+	if err := a.Store.DeleteListener(listenerName); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete listener"})
 		return
 	}
-
-	if result.RowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Listener not found"})
-		return
-	}
-
 	c.Status(http.StatusNoContent)
 }
 

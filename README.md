@@ -49,8 +49,25 @@ make generate-keys
 
 TeamServer 是 C2 的核心服务器。
 
-- **配置**: 服务器通过 `teamserver.yaml` 文件进行配置。如果运行目录下未找到该文件，将自动生成一个默认文件。您必须编辑此文件以提供您的数据库连接信息和操作员密码。
-  
+- **配置**: 服务器通过 `teamserver.yaml` 文件进行配置。如果首次运行时找不到该文件，将自动生成一个默认配置。
+
+  **数据库选项**:
+  您可以在 `database` 部分选择使用 `sqlite` (默认) 或 `postgres`。
+
+  - **SQLite (默认)**: 无需额外设置，数据库文件将根据配置中的 `path` 创建。
+    ```yaml
+    database:
+      type: sqlite
+      path: data/simplec2.db
+    ```
+
+  - **PostgreSQL**: 需要您提供一个有效的数据库连接字符串 (DSN)。
+    ```yaml
+    database:
+      type: postgres
+      dsn: "host=localhost user=postgres password=your_password dbname=simplec2 port=5432 sslmode=disable"
+    ```
+
 - **如何运行**:
   
   1.  **构建**: `make teamserver`
