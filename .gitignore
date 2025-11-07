@@ -50,3 +50,9 @@ listeners/http/listener.yaml
 # Exclude all local config files and build artifacts
 *.yaml
 bin/
+
+# Claude Code
+CLAUDE.md
+.serena
+.spec-workflow
+.claude

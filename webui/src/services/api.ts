@@ -1,9 +1,38 @@
 import axios from 'axios';
 
+// 默认API地址
+const DEFAULT_API_URL = 'http://localhost:8080';
+
+// API客户端实例
 export const api = axios.create({
   baseURL: '/api',
 });
 
+// 获取保存的API基础URL
+export const getBaseURL = (): string => {
+  return localStorage.getItem('api_base_url') || DEFAULT_API_URL;
+};
+
+// 设置API基础URL
+export const setBaseURL = (url: string): void => {
+  localStorage.setItem('api_base_url', url);
+  // 更新api实例的baseURL
+  api.defaults.baseURL = `${url}/api`;
+};
+
+// 初始化API配置
+const initializeAPI = () => {
+  const baseURL = getBaseURL();
+  setBaseURL(baseURL);
+
+  // 从localStorage初始化token
+  const token = localStorage.getItem('token');
+  if (token) {
+    setAuthToken(token);
+  }
+};
+
+// 设置认证token
 export const setAuthToken = (token: string | null) => {
   if (token) {
     api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
@@ -12,11 +41,8 @@ export const setAuthToken = (token: string | null) => {
   }
 };
 
-// Initialize the token from localStorage on startup
-const token = localStorage.getItem('token');
-if (token) {
-  setAuthToken(token);
-}
+// 初始化API
+initializeAPI();
 
 export const getBeacons = async () => {
   const response = await api.get('/beacons');
