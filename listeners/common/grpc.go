@@ -74,7 +74,14 @@ func ConnectToTeamServer(cfg *config.ListenerConfig) (*grpc.ClientConn, error) {
 // CreateAuthenticatedContext creates a new context with the API key attached for gRPC calls.
 func CreateAuthenticatedContext(cfg *config.ListenerConfig) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	md := metadata.New(map[string]string{"authorization": "Bearer " + cfg.Auth.APIKey})
+	// 获取 API Key（优先使用加密版本）
+	apiKey, err := cfg.GetAPIKey()
+	if err != nil {
+		log.Printf("Warning: Failed to get API key: %v", err)
+		// 使用明文版本作为回退
+		apiKey = cfg.Auth.APIKey
+	}
+	md := metadata.New(map[string]string{"authorization": "Bearer " + apiKey})
 	ctx = metadata.NewOutgoingContext(ctx, md)
 	return ctx, cancel
 }

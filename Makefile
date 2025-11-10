@@ -85,7 +85,13 @@ $(BEACON_DARWIN_PATH):
 .PHONY: generate-keys
 generate-keys:
 	@echo "Generating all cryptographic materials (E2E keys and mTLS certs)..."
-	@go run ./scripts/generate-keys.go
+	@go run ./scripts/generate-keys.Go
+
+.PHONY: cp-certs
+cp-certs:
+	@echo "Copy certs..."
+	@cp -f ./certs/teamserver/* ./bin/teamserver/certs/
+	@cp -f ./certs/listener/* ./bin/listener_http/certs/
 
 .PHONY: clean
 clean:

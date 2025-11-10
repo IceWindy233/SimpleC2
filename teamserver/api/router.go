@@ -25,6 +25,9 @@ func NewRouter(cfg *config.TeamServerConfig, store data.DataStore) *gin.Engine {
 
 	api := &API{Config: cfg, Store: store}
 
+	// 获取 JWT 签名密钥
+	jwtSecret := config.GetJWTSecret(cfg.Auth.JWTSecret)
+
 	// Public group for authentication
 	auth := router.Group("/api/auth")
 	{
@@ -33,7 +36,7 @@ func NewRouter(cfg *config.TeamServerConfig, store data.DataStore) *gin.Engine {
 
 	// Protected group for C2 operations
 	protected := router.Group("/api")
-	protected.Use(AuthMiddleware(api.Config.Auth.OperatorPassword))
+	protected.Use(AuthMiddleware(jwtSecret))
 	{
 		// Beacon management
 		protected.GET("/beacons", api.GetBeacons)

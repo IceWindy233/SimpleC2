@@ -6,7 +6,7 @@ SimpleC2 是一个轻量级、模块化、可扩展的C2框架，其核心设计
 
 ## 核心设计思想
 
-设计的整体思想来自于 `C2框架设计文档.md` 文件内容。
+设计的整体思想来自于 [SimpleC2 框架设计文档](https://www.icewindy.cn/2025/11/09/SimpleC2%E6%A1%86%E6%9E%B6%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/)。
 
 - **分离式架构**: TeamServer 与 Listeners 解耦，允许独立部署和扩展。
 - **gRPC 内部桥接**: Listener 通过一个安全高效的 gRPC 桥接与 TeamServer 进行通信，并采用 mTLS 进行双向认证。

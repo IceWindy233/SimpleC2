@@ -84,7 +84,8 @@ func generateDefaultConfig(path string) error {
 			Port: ":8888",
 		},
 		Auth: struct {
-			APIKey string `yaml:"api_key"`
+			APIKey           string `yaml:"api_key,omitempty"`
+			EncryptedAPIKey  *config.EncryptedAPIKey `yaml:"encrypted_api_key,omitempty"`
 		}{
 			APIKey: "SimpleC2ListenerAPIKey_CHANGE_ME",
 		},

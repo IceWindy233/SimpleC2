@@ -51,8 +51,14 @@ func main() {
 		log.Fatalf("Failed to load TLS credentials: %v", err)
 	}
 
+	// 获取 API Key（优先使用加密版本）
+	apiKey, err := cfg.Auth.GetAPIKey()
+	if err != nil {
+		log.Fatalf("Failed to get API key: %v", err)
+	}
+
 	// Correctly create the auth interceptor
-	interceptor := NewAuthInterceptor(cfg.Auth.APIKey)
+	interceptor := NewAuthInterceptor(apiKey)
 
 	grpcServer := grpc.NewServer(
 		grpc.Creds(creds),
@@ -124,6 +130,8 @@ func generateDefaultConfig(path string) error {
 		Auth: config.AuthConfig{
 			APIKey:           "SimpleC2ListenerAPIKey_CHANGE_ME",
 			OperatorPassword: "SUPER_SECRET_PASSWORD_CHANGE_ME",
+			// 独立的 JWT 签名密钥 - 强烈建议从环境变量读取
+			JWTSecret: "CHANGE_ME_TO_RANDOM_256_BIT_KEY",
 		},
 		LootDir:    "loot",
 		UploadsDir: "uploads",

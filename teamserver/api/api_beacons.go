@@ -92,6 +92,8 @@ func (a *API) CreateBeaconTask(c *gin.Context) {
 		Status:    "queued",
 	}
 
+	log.Printf("Creating task - Command: %s, Arguments: %q, Length: %d", req.Command, req.Arguments, len(req.Arguments))
+
 	if err := a.Store.CreateTask(&task); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create task"})
 		return

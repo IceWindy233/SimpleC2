@@ -53,6 +53,7 @@ bin/
 
 # Claude Code
 CLAUDE.md
+docs/analysis
 .serena
 .spec-workflow
 .claude
