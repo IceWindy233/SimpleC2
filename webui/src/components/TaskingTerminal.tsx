@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { createTask, getTask } from '../services/api';
+import { useState } from 'react';
+import { createTask, downloadLootFile } from '../services/api';
 
 interface Task {
   TaskID: string;

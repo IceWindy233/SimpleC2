@@ -1,5 +1,6 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../services/AuthContext";
+import { WebSocketProvider } from "../contexts/WebSocketContext";
 
 const ProtectedRoute = () => {
   const { isAuthenticated } = useAuth();
@@ -9,8 +10,12 @@ const ProtectedRoute = () => {
     return <Navigate to="/login" />;
   }
 
-  // If authenticated, render the child routes
-  return <Outlet />;
+  // If authenticated, wrap the child routes in the WebSocketProvider
+  return (
+    <WebSocketProvider>
+      <Outlet />
+    </WebSocketProvider>
+  );
 };
 
 export default ProtectedRoute;

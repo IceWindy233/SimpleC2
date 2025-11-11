@@ -4,7 +4,6 @@ import * as path from 'path-browserify';
 
 interface FileBrowserProps {
   beaconId: string;
-  os: string;
 }
 
 interface FileInfo {
@@ -52,7 +51,7 @@ const parseBrowseOutput = (output: string): ParsedOutput => {
   }
 };
 
-const FileBrowser = ({ beaconId, os }: FileBrowserProps) => {
+const FileBrowser = ({ beaconId }: FileBrowserProps) => {
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [currentPath, setCurrentPath] = useState('~');
   const [requestedPath, setRequestedPath] = useState('.'); // Path for navigation

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from "react-router-dom";
-import { getBeacon, getTask, deleteBeacon } from '../services/api';
+import { getBeacon, deleteBeacon } from '../services/api';
+import { useWebSocket } from '../contexts/WebSocketContext';
 import TaskingTerminal from '../components/TaskingTerminal';
 import FileBrowser from '../components/FileBrowser';
 
@@ -21,7 +22,7 @@ interface Beacon {
 }
 
 // Define the type for a single task object
-interface Task {
+export interface Task {
   TaskID: string;
   Command: string;
   Arguments: string;
@@ -38,80 +39,55 @@ const BeaconDetailPage = () => {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('terminal');
   const [deleting, setDeleting] = useState(false);
+  const { lastMessage } = useWebSocket();
 
-    // Fetch main beacon details and set up refresh
-
-    useEffect(() => {
-
-      if (!beaconId) return;
-
-  
-
-      const fetchBeaconDetails = async () => {
-
-        try {
-
-          const data = await getBeacon(beaconId);
-
-          setBeacon(data);
-
-        } catch (err) {
-
-          setError('Failed to fetch beacon details.');
-
-          console.error(err);
-
-        }
-
-      };
-
-  
-
-      fetchBeaconDetails(); // Fetch immediately on mount
-
-      const intervalId = setInterval(fetchBeaconDetails, 5000); // Refresh every 5 seconds
-
-  
-
-      return () => clearInterval(intervalId); // Cleanup on unmount
-
-    }, [beaconId]);
-
-  const pollForResult = (taskId: string) => {
-    const startTime = Date.now();
-    const timeout = 60000; // 60 seconds timeout
-
-    const intervalId = setInterval(async () => {
-      // Check for timeout
-      if (Date.now() - startTime > timeout) {
-        clearInterval(intervalId);
-        setTasks(prevTasks =>
-          prevTasks.map(t =>
-            t.TaskID === taskId ? { ...t, Status: "Timeout" } : t
-          )
-        );
-        console.warn(`Polling for task ${taskId} timed out.`);
-        return;
-      }
-
+  // Initial fetch for beacon details
+  useEffect(() => {
+    if (!beaconId) return;
+    const fetchBeaconDetails = async () => {
       try {
-        const updatedTask = await getTask(taskId);
-        if (updatedTask.Status === 'completed' || updatedTask.Status === 'error') {
-          setTasks(prevTasks => 
-            prevTasks.map(t => t.TaskID === taskId ? updatedTask : t)
-          );
-          clearInterval(intervalId);
-        }
-      } catch (error) {
-        console.error(`Failed to poll for task ${taskId}:`, error);
-        clearInterval(intervalId); // Stop polling on error
+        const data = await getBeacon(beaconId);
+        setBeacon(data);
+      } catch (err) {
+        setError('Failed to fetch beacon details.');
+        console.error(err);
       }
-    }, 3000); // Poll every 3 seconds
-  };
+    };
+    fetchBeaconDetails();
+  }, [beaconId]);
+
+  // WebSocket message handling for real-time updates
+  useEffect(() => {
+    if (lastMessage) {
+      try {
+        const event = JSON.parse(lastMessage.data);
+        if (event.payload.BeaconID !== beaconId) {
+          // Ignore events for other beacons
+          return;
+        }
+
+        if (event.type === 'TASK_OUTPUT') {
+          const updatedTask = event.payload as Task;
+          setTasks(prevTasks =>
+            prevTasks.map(t => (t.TaskID === updatedTask.TaskID ? updatedTask : t))
+          );
+          // Also update the beacon's last seen time for responsiveness
+          setBeacon(prevBeacon => prevBeacon ? { ...prevBeacon, LastSeen: updatedTask.UpdatedAt } : null);
+        
+        } else if (event.type === 'BEACON_CHECKIN') {
+          const { last_seen } = event.payload;
+          setBeacon(prevBeacon => prevBeacon ? { ...prevBeacon, LastSeen: last_seen } : null);
+        }
+      } catch (e) {
+        console.error("Failed to parse WebSocket message", e);
+      }
+    }
+  }, [lastMessage, beaconId]);
 
   const handleNewTask = (newTask: Task) => {
+    // Add the new task with a "dispatched" status.
+    // The actual result will come in via WebSocket.
     setTasks(prevTasks => [newTask, ...prevTasks]);
-    pollForResult(newTask.TaskID);
   };
 
   const handleDeleteBeacon = async () => {
@@ -201,7 +177,7 @@ const BeaconDetailPage = () => {
           {beaconId && <TaskingTerminal beaconId={beaconId} tasks={tasks} onNewTask={handleNewTask} />}
         </div>
         <div className={`tab-pane fade ${activeTab === 'filebrowser' ? 'show active' : ''}`}>
-          {beacon && <FileBrowser beaconId={beacon.BeaconID} os={beacon.OS} />}
+          {beacon && <FileBrowser beaconId={beacon.BeaconID} />}
         </div>
       </div>
     </div>

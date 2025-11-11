@@ -81,19 +81,31 @@ func (a *API) Login() gin.HandlerFunc {
 // AuthMiddleware creates a middleware handler for JWT validation.
 func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is missing"})
-			return
+		var tokenString string
+
+		// For WebSockets, the token is passed as a query parameter
+		// because headers are not easily sent.
+		if c.Request.URL.Path == "/api/ws" {
+			tokenString = c.Query("token")
+			if tokenString == "" {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "WebSocket token is missing"})
+				return
+			}
+		} else {
+			// For standard HTTP requests, get the token from the header.
+			authHeader := c.GetHeader("Authorization")
+			if authHeader == "" {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is missing"})
+				return
+			}
+			parts := strings.Split(authHeader, " ")
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is invalid"})
+				return
+			}
+			tokenString = parts[1]
 		}
 
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is invalid"})
-			return
-		}
-
-		tokenString := parts[1]
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, http.ErrAbortHandler

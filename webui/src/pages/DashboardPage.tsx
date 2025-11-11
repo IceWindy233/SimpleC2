@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getBeacons, deleteBeacon } from '../services/api';
+import { useWebSocket } from '../contexts/WebSocketContext';
 
 // Define the type for a single beacon object based on our API response
 interface Beacon {
@@ -19,16 +20,52 @@ const DashboardPage = () => {
   const [beacons, setBeacons] = useState<Beacon[]>([]);
   const [error, setError] = useState('');
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
+  const { lastMessage } = useWebSocket();
 
-  const fetchBeacons = async () => {
-    try {
-      const data = await getBeacons();
-      setBeacons(data || []); // Ensure data is not null/undefined
-    } catch (err) {
-      setError('Failed to fetch beacons.');
-      console.error(err);
+  // Initial fetch for beacons
+  useEffect(() => {
+    const fetchBeacons = async () => {
+      try {
+        const data = await getBeacons();
+        setBeacons(data || []); // Ensure data is not null/undefined
+      } catch (err) {
+        setError('Failed to fetch beacons.');
+        console.error(err);
+      }
+    };
+    fetchBeacons();
+  }, []);
+
+  // WebSocket message handling for real-time updates
+  useEffect(() => {
+    if (lastMessage) {
+      try {
+        const event = JSON.parse(lastMessage.data);
+        if (event.type === 'BEACON_NEW') {
+          const newBeacon = event.payload as Beacon;
+          setBeacons(prevBeacons => {
+            // Avoid adding duplicates
+            if (prevBeacons.some(b => b.BeaconID === newBeacon.BeaconID)) {
+              return prevBeacons;
+            }
+            return [...prevBeacons, newBeacon];
+          });
+        } else if (event.type === 'BEACON_CHECKIN') {
+          const { beacon_id, last_seen } = event.payload;
+          setBeacons(prevBeacons =>
+            prevBeacons.map(b =>
+              b.BeaconID === beacon_id
+                ? { ...b, LastSeen: last_seen }
+                : b
+            )
+          );
+        }
+      } catch (e) {
+        console.error("Failed to parse WebSocket message", e);
+      }
     }
-  };
+  }, [lastMessage]);
+
 
   const handleDelete = async (beaconId: string) => {
     const confirmed = window.confirm(
@@ -51,13 +88,6 @@ const DashboardPage = () => {
       setDeletingIds(prev => prev.filter(id => id !== beaconId));
     }
   };
-
-  useEffect(() => {
-    fetchBeacons(); // Fetch immediately on component mount
-    const intervalId = setInterval(fetchBeacons, 5000); // Refresh every 5 seconds
-
-    return () => clearInterval(intervalId); // Cleanup interval on component unmount
-  }, []);
 
   const isBeaconActive = (lastSeen: string) => {
     const lastSeenTime = new Date(lastSeen).getTime();

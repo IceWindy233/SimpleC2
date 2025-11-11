@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -57,6 +58,22 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 	if err := s.Store.UpdateTask(task); err != nil {
 		log.Printf("Error updating task output: %v", err)
 		return nil, err
+	}
+
+	// Broadcast the task update event via WebSocket
+	event := struct {
+		Type    string      `json:"type"`
+		Payload interface{} `json:"payload"`
+	}{
+		Type:    "TASK_OUTPUT",
+		Payload: task,
+	}
+	eventBytes, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("Error marshalling task output event: %v", err)
+	} else {
+		s.Hub.Broadcast(eventBytes)
+		log.Printf("Broadcasted TASK_OUTPUT event for %s", task.TaskID)
 	}
 
 	return &bridge.PushBeaconOutputResponse{}, nil

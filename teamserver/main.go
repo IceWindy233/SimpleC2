@@ -13,6 +13,7 @@ import (
 	"simplec2/pkg/config"
 	"simplec2/teamserver/api"
 	"simplec2/teamserver/data"
+	"simplec2/teamserver/websocket"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -59,6 +60,10 @@ func main() {
 	}
 	log.Println("Database initialized successfully.")
 
+	// Create and run the WebSocket hub
+	hub := websocket.NewHub()
+	go hub.Run()
+
 	creds, err := loadTeamServerCreds(cfg.GRPC.Certs.ServerCert, cfg.GRPC.Certs.ServerKey, cfg.GRPC.Certs.CACert)
 	if err != nil {
 		log.Fatalf("Failed to load TLS credentials: %v", err)
@@ -79,8 +84,8 @@ func main() {
 		grpc.MaxRecvMsgSize(100*1024*1024), // 100 MB
 	)
 
-	// Correctly create an instance of the server struct with config and store
-	s := NewServer(&cfg, store)
+	// Correctly create an instance of the server struct with config, store, and hub
+	s := NewServer(&cfg, store, hub)
 	// Correctly call the registration function with the package prefix
 	bridge.RegisterTeamServerBridgeServiceServer(grpcServer, s)
 
@@ -96,7 +101,7 @@ func main() {
 	}()
 
 	go func() {
-		router := api.NewRouter(&cfg, store)
+		router := api.NewRouter(&cfg, store, hub)
 		log.Printf("HTTP API server listening on %s", cfg.API.Port)
 		if err := router.Run(cfg.API.Port); err != nil {
 			log.Fatalf("Failed to run HTTP server: %v", err)

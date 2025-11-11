@@ -53,6 +53,22 @@ func (s *server) StageBeacon(ctx context.Context, in *bridge.StageBeaconRequest)
 
 	log.Printf("New beacon with ID %s saved to database", beacon.BeaconID)
 
+	// Broadcast the new beacon event via WebSocket
+	event := struct {
+		Type    string      `json:"type"`
+		Payload data.Beacon `json:"payload"`
+	}{
+		Type:    "BEACON_NEW",
+		Payload: beacon,
+	}
+	eventBytes, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("Error marshalling new beacon event: %v", err)
+	} else {
+		s.Hub.Broadcast(eventBytes)
+		log.Printf("Broadcasted BEACON_NEW event for %s", beacon.BeaconID)
+	}
+
 	return &bridge.StageBeaconResponse{
 		AssignedBeaconId: beacon.BeaconID,
 	}, nil
@@ -86,6 +102,30 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 	}
 
 	s.Store.UpdateBeacon(beacon)
+
+	// Broadcast the check-in event via WebSocket
+	checkinEvent := struct {
+		Type    string `json:"type"`
+		Payload struct {
+			BeaconID string    `json:"beacon_id"`
+			LastSeen time.Time `json:"last_seen"`
+		} `json:"payload"`
+	}{
+		Type: "BEACON_CHECKIN",
+		Payload: struct {
+			BeaconID string    `json:"beacon_id"`
+			LastSeen time.Time `json:"last_seen"`
+		}{
+			BeaconID: beacon.BeaconID,
+			LastSeen: beacon.LastSeen,
+		},
+	}
+	eventBytes, err := json.Marshal(checkinEvent)
+	if err != nil {
+		log.Printf("Error marshalling check-in event: %v", err)
+	} else {
+		s.Hub.Broadcast(eventBytes)
+	}
 
 	// Find queued tasks for this beacon
 	var grpcTasks []*bridge.Task
