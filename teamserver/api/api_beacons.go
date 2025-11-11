@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 	"simplec2/teamserver/data"
 )
 
@@ -34,28 +35,51 @@ func (a *API) GetBeacon(c *gin.Context) {
 func (a *API) DeleteBeacon(c *gin.Context) {
 	beaconID := c.Param("beacon_id")
 
-	_, err := a.Store.GetBeacon(beaconID)
+	// The store is a GormStore, so we can get the DB object from it.
+	gormStore, ok := a.Store.(*data.GormStore)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error: invalid data store type"})
+		return
+	}
+
+	// Wrap the operations in a transaction to ensure atomicity.
+	err := gormStore.DB.Transaction(func(tx *gorm.DB) error {
+		// 1. Ensure beacon exists before proceeding (within the transaction).
+		var beacon data.Beacon
+		if err := tx.Where("beacon_id = ?", beaconID).First(&beacon).Error; err != nil {
+			return err // Beacon not found, will cause rollback.
+		}
+
+		// 2. Create an exit task for the beacon.
+		exitTask := data.Task{
+			TaskID:    uuid.New().String(),
+			BeaconID:  beaconID,
+			Command:   "exit",
+			Arguments: "",
+			Status:    "queued",
+		}
+		if err := tx.Create(&exitTask).Error; err != nil {
+			return err // Task creation failed, will cause rollback.
+		}
+
+		// 3. Soft-delete the beacon.
+		if err := tx.Where("beacon_id = ?", beaconID).Delete(&data.Beacon{}).Error; err != nil {
+			return err // Deletion failed, will cause rollback.
+		}
+
+		// Return nil to commit the transaction.
+		return nil
+	})
+
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Beacon not found"})
-		return
-	}
-
-	exitTask := data.Task{
-		TaskID:    uuid.New().String(),
-		BeaconID:  beaconID,
-		Command:   "exit",
-		Arguments: "",
-		Status:    "queued",
-	}
-
-	if err := a.Store.CreateTask(&exitTask); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create exit task for beacon"})
-		return
-	}
-
-	if err := a.Store.DeleteBeacon(beaconID); err != nil {
-		log.Printf("Error soft-deleting beacon %s: %v", beaconID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to soft-delete beacon"})
+		// Check if the error is because the beacon was not found.
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Beacon not found"})
+			return
+		}
+		// For any other transaction error.
+		log.Printf("Error in delete beacon transaction for %s: %v", beaconID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete beacon and create exit task"})
 		return
 	}
 

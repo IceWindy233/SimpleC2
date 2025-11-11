@@ -22,6 +22,49 @@ SimpleC2 是一个轻量级、模块化、可扩展的C2框架，其核心设计
 - Node.js (16+)
 - `protoc` 编译器 (如果需要重新生成 gRPC 代码)
 
+### 安全配置 (重要)
+
+为了安全地运行 TeamServer，您需要配置几个重要的安全参数。
+
+#### 1. 配置环境变量
+
+TeamServer 使用两个环境变量来管理加密密钥，以避免将敏感信息硬编码在配置文件中。
+
+-   `SIMC2_JWT_SECRET`: 用于签发和验证 API 认证令牌（JWT）的独立密钥。
+-   `SIMC2_ENCRYPTION_KEY`: 用于加密和解密配置文件中 `api_key` 的密钥。
+
+**在启动 TeamServer 之前，请务必设置这两个变量。** 您可以使用以下命令生成强随机密钥：
+
+```bash
+export SIMC2_JWT_SECRET=$(openssl rand -base64 32)
+export SIMC2_ENCRYPTION_KEY=$(openssl rand -base64 32)
+
+# 验证是否设置成功
+echo $SIMC2_JWT_SECRET
+echo $SIMC2_ENCRYPTION_KEY
+```
+
+#### 2. 哈希化操作员密码
+
+默认情况下, `teamserver.yaml` 中的 `operator_password` 是明文存储的。为了提高安全性，建议将其替换为 bcrypt 哈希值。
+
+您可以使用程序内置的工具来生成密码哈希：
+
+1.  首先, 在 `teamserver.yaml` 文件中设置您想要的明文密码。
+2.  然后, 运行以下命令：
+
+    ```bash
+    # 进入 teamserver 目录
+    cd bin/teamserver
+    
+    # 运行命令生成哈希
+    ./teamserver -hash-password
+    ```
+3.  程序将输出一个类似 `$2a$10$...` 的哈希字符串。
+4.  将这个哈希字符串复制并覆盖 `teamserver.yaml` 文件中的 `operator_password` 的值。
+
+完成以上步骤后, TeamServer 将使用更安全的方式来验证您的密码。
+
 ### 首次运行：生成所有必需的加密材料
 
 在首次构建或运行任何组件之前，您必须生成所有用于 E2E 加密和 mTLS 通信的密钥与证书。项目提供了一个简化的命令来完成此操作：
@@ -37,6 +80,7 @@ make generate-keys
 项目包含一个 `Makefile` 以简化构建流程。
 
 - `make generate-keys`: 生成所有必需的密钥和证书。
+- `make cp-certs`: 将`teamserver`和`listener`所需要的密钥和证书复制到在 `certs/teamserver` 和 `certs/listener` 目录中。
 - `make` 或 `make all`: 构建所有组件 (`teamserver`, `listener_http`, 所有 `beacons`)。
 - `make http`: 构建 HTTP listener 及其对应的 beacons。
 - `make teamserver`: 仅构建 TeamServer。

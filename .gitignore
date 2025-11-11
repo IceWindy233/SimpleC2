@@ -38,7 +38,7 @@ teamserver/loot/*
 
 # Certs - In a real scenario, you might want to manage these securely, not in git.
 # For this project, we will ignore them to avoid committing sensitive data.
-certs/*
+certs
 /teamserver/certs/*
 /listeners/http/certs/*
 /agents/http/listener.pub
@@ -57,3 +57,10 @@ docs/analysis
 .serena
 .spec-workflow
 .claude
+
+# GeminiCLI
+GEMINI.md
+.gemini
+
+# Github
+.github

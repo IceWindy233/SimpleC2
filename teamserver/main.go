@@ -23,6 +23,7 @@ var cfg config.TeamServerConfig
 
 func main() {
 	configPath := flag.String("config", "teamserver.yaml", "Path to the TeamServer configuration file.")
+	hashPassword := flag.Bool("hash-password", false, "Hash the operator password from the config file and exit.")
 	flag.Parse()
 
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
@@ -38,6 +39,18 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 	log.Println("Configuration loaded successfully.")
+
+	if *hashPassword {
+		if cfg.Auth.OperatorPassword == "" {
+			log.Fatal("Operator password is not set in the configuration file.")
+		}
+		hashedPassword, err := api.HashPassword(cfg.Auth.OperatorPassword)
+		if err != nil {
+			log.Fatalf("Failed to hash password: %v", err)
+		}
+		fmt.Printf("Hashed password for your config file (replace operator_password with this value):\n%s\n", hashedPassword)
+		return
+	}
 
 	// Initialize the DataStore
 	store, err := data.NewDataStore(cfg.Database)

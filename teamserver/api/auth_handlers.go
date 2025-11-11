@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -11,8 +12,8 @@ import (
 	"simplec2/pkg/config"
 )
 
-// hashPassword 使用 bcrypt 哈希密码
-func hashPassword(password string) (string, error) {
+// HashPassword 使用 bcrypt 哈希密码
+func HashPassword(password string) (string, error) {
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(hashed), err
 }
@@ -37,12 +38,23 @@ func (a *API) Login() gin.HandlerFunc {
 			return
 		}
 
-		// 密码验证 - 使用 bcrypt
-		// 注意：生产环境应该使用哈希存储密码，这里为简化仍使用明文
-		// TODO: 建议使用哈希存储密码（参考 hashPassword 函数）
-		if req.Password != a.Config.Auth.OperatorPassword {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
-			return
+		storedPassword := a.Config.Auth.OperatorPassword
+		isHashed := strings.HasPrefix(storedPassword, "$2a$") || strings.HasPrefix(storedPassword, "$2b$") || strings.HasPrefix(storedPassword, "$2y$")
+
+		// 密码验证
+		if isHashed {
+			// 存储的是哈希，使用 bcrypt 比较
+			if err := verifyPassword(req.Password, storedPassword); err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+				return
+			}
+		} else {
+			// 存储的是明文，直接比较（不安全）
+			log.Println("Warning: The operator password is in plaintext. Please use the -hash-password flag to generate a hash and update your config file for better security.")
+			if req.Password != storedPassword {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+				return
+			}
 		}
 
 		// 获取独立的 JWT 签名密钥

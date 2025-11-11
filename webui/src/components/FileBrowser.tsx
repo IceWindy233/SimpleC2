@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createTask, getTask, downloadLootFile, uploadFile } from '../services/api';
 import * as path from 'path-browserify';
 
@@ -11,7 +11,8 @@ interface FileInfo {
   name: string;
   is_dir: boolean;
   size: number;
-  last_mod_time: string;
+  permissions: string;
+  lastModified: string;
 }
 
 interface ParsedOutput {
@@ -54,31 +55,32 @@ const parseBrowseOutput = (output: string): ParsedOutput => {
 const FileBrowser = ({ beaconId, os }: FileBrowserProps) => {
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [currentPath, setCurrentPath] = useState('~');
-  const [requestedPath, setRequestedPath] = useState('.');
+  const [requestedPath, setRequestedPath] = useState('.'); // Path for navigation
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [fileOpStatus, setFileOpStatus] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const activePollId = useRef<number | null>(null); // To store the current interval ID
 
-  useEffect(() => {
-    const fetchFiles = async () => {
-      setIsLoading(true);
-      setError('');
-      setFiles([]);
-      setFileOpStatus({}); // Reset file operation status
+  const browsePath = useCallback((path_to_browse: string) => {
+    // Clear any existing poll before starting a new one
+    if (activePollId.current) {
+      clearInterval(activePollId.current);
+    }
 
-      const browseCommand = requestedPath; // The browse command takes the path as argument
-
-      try {
-        const task = await createTask(beaconId, 'browse', browseCommand);
-
+    setIsLoading(true);
+    setError('');
+    setFiles([]);
+    
+    createTask(beaconId, 'browse', path_to_browse)
+      .then(task => {
         const poll = setInterval(async () => {
           try {
             const updatedTask = await getTask(task.TaskID);
             if (updatedTask.Status === 'completed' || updatedTask.Status === 'error' || updatedTask.Status === 'Timeout') {
               clearInterval(poll);
+              activePollId.current = null;
               setIsLoading(false);
-              console.log('fetchFiles: isLoading set to false. Task status:', updatedTask.Status, 'for task:', task.TaskID);
               if (updatedTask.Status === 'completed') {
                 const parsed = parseBrowseOutput(updatedTask.Output);
                 setCurrentPath(parsed.path);
@@ -90,20 +92,37 @@ const FileBrowser = ({ beaconId, os }: FileBrowserProps) => {
           } catch (pollError) {
             console.error('Error during browse task polling:', pollError);
             clearInterval(poll);
+            activePollId.current = null;
             setIsLoading(false);
             setError('Error during browse task polling.');
-            console.log('fetchFiles: isLoading set to false (polling error)');
           }
         }, 3000);
-      } catch (err) {
+        activePollId.current = poll as unknown as number;
+      })
+      .catch(err => {
         console.error("Failed to create browse files task:", err);
         setError('Failed to create browse files task.');
         setIsLoading(false);
+      });
+  }, [beaconId]); // useCallback depends on beaconId
+
+  // Effect for initial load and navigation
+  useEffect(() => {
+    browsePath(requestedPath);
+  }, [requestedPath, browsePath]); // Runs when requestedPath changes
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (activePollId.current) {
+        clearInterval(activePollId.current);
       }
     };
+  }, []);
 
-    fetchFiles();
-  }, [beaconId, os, requestedPath]);
+  const handleRefresh = () => {
+    browsePath(currentPath);
+  };
 
   const handleDownloadFromBeacon = async (filename: string) => {
     const fullPath = path.join(currentPath, filename);
@@ -164,7 +183,7 @@ const FileBrowser = ({ beaconId, os }: FileBrowserProps) => {
         <div>
           <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleUploadToBeacon} />
           <button className="btn btn-sm btn-success me-2" onClick={() => fileInputRef.current?.click()}>Upload File</button>
-          <button className="btn btn-sm btn-outline-secondary" onClick={() => setRequestedPath(currentPath)} disabled={isLoading}>
+          <button className="btn btn-sm btn-outline-secondary" onClick={handleRefresh} disabled={isLoading}>
             {isLoading ? 'Loading...' : 'Refresh'}
           </button>
         </div>
