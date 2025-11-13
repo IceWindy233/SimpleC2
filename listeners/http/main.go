@@ -60,6 +60,7 @@ func main() {
 	http.HandleFunc("/stage", stageHandler)
 	http.HandleFunc("/checkin", checkinHandler)
 	http.HandleFunc("/output", outputHandler)
+	http.HandleFunc("/chunk", chunkHandler)
 
 	log.Printf("HTTP Listener starting on port %s", cfg.Listener.Port)
 	if err := http.ListenAndServe(cfg.Listener.Port, nil); err != nil {
@@ -262,6 +263,47 @@ func outputHandler(w http.ResponseWriter, r *http.Request) {
 	encryptAndSend(w, r, map[string]string{"status": "ok"})
 }
 
+func chunkHandler(w http.ResponseWriter, r *http.Request) {
+	encryptedBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+
+	decryptedBody, err := decryptRequest(r, encryptedBody)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		TaskID      string `json:"task_id"`
+		ChunkNumber int32  `json:"chunk_number"`
+	}
+	if err := json.Unmarshal(decryptedBody, &req); err != nil {
+		http.Error(w, "Invalid chunk request format", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := common.CreateAuthenticatedContext(&cfg)
+	defer cancel()
+
+	grpcReq := &bridge.GetTaskedFileChunkRequest{
+		TaskId:      req.TaskID,
+		ChunkNumber: req.ChunkNumber,
+	}
+
+	grpcRes, err := common.TSClient.GetTaskedFileChunk(ctx, grpcReq)
+	if err != nil {
+		log.Printf("gRPC GetTaskedFileChunk failed: %v", err)
+		http.Error(w, "Failed to get file chunk", http.StatusInternalServerError)
+		return
+	}
+
+	encryptAndSendRaw(w, r, grpcRes.GetChunkData())
+}
+
+
 func decryptRequest(r *http.Request, encryptedBody []byte) ([]byte, error) {
 	sessionID := r.Header.Get("X-Session-ID")
 	if sessionID == "" {
@@ -283,6 +325,10 @@ func encryptAndSend(w http.ResponseWriter, r *http.Request, data interface{}) {
 		return
 	}
 
+	encryptAndSendRaw(w, r, plaintext)
+}
+
+func encryptAndSendRaw(w http.ResponseWriter, r *http.Request, plaintext []byte) {
 	sessionID := r.Header.Get("X-Session-ID")
 	key, ok := sessionKeys.Load(sessionID)
 	if !ok {
@@ -299,6 +345,7 @@ func encryptAndSend(w http.ResponseWriter, r *http.Request, data interface{}) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Write(encryptedResponse)
 }
+
 
 func encrypt(plaintext []byte, key []byte) ([]byte, error) {
 	c, err := aes.NewCipher(key)

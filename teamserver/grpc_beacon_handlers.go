@@ -2,12 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -150,12 +147,10 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 			taskArgs = []byte(dbTask.Arguments)
 		case "download":
 			cmdID = 2
-			// 解析下载参数
 			if dbTask.Arguments == "" {
 				log.Printf("Download task %s has no arguments", dbTask.TaskID)
 				taskArgs = nil
 			} else {
-				// 参数格式: {"source": "uploads/xxx.pdf", "destination": "/path/on/beacon"}
 				var downloadArgs struct {
 					Source      string `json:"source"`
 					Destination string `json:"destination"`
@@ -164,32 +159,29 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 					log.Printf("Failed to parse download arguments for task %s: %v", dbTask.TaskID, err)
 					taskArgs = nil
 				} else {
-					// 读取源文件
 					sourcePath := downloadArgs.Source
-					if !filepath.IsAbs(sourcePath) {
-						// 相对路径相对于当前工作目录（TeamServer启动目录）
-						sourcePath = filepath.Join(".", sourcePath)
+					
+					fileInfo, err := os.Stat(sourcePath)
+					if err != nil {
+						log.Printf("Failed to get file info for %s: %v", sourcePath, err)
+						// Optionally, update task to 'error' state here.
+						continue
 					}
 
-					log.Printf("Reading file for download: %s", sourcePath)
-					fileData, err := os.ReadFile(sourcePath)
-					if err != nil {
-						log.Printf("Failed to read file %s: %v", sourcePath, err)
-						// 返回错误信息给Beacon
-						errorMsg := fmt.Sprintf("Failed to read file: %v", err)
-						taskArgs = []byte(errorMsg)
-					} else {
-						// 构建Beacon期望的参数格式
-						beaconArgs := struct {
-							DestPath string `json:"dest_path"`
-							FileData string `json:"file_data"`
-						}{
-							DestPath: downloadArgs.Destination,
-							FileData: base64.StdEncoding.EncodeToString(fileData),
-						}
-						taskArgs, _ = json.Marshal(beaconArgs)
-						log.Printf("Successfully prepared file for download: %s (%d bytes)", downloadArgs.Destination, len(fileData))
+					// Prepare arguments for the beacon to initiate chunked download
+					beaconArgs := struct {
+						Source      string `json:"source"`
+						Destination string `json:"destination"`
+						FileSize    int64  `json:"file_size"`
+						ChunkSize   int    `json:"chunk_size"`
+					}{
+						Source:      downloadArgs.Source, // Keep original source for beacon's reference if needed
+						Destination: downloadArgs.Destination,
+						FileSize:    fileInfo.Size(),
+						ChunkSize:   ChunkSize, // Use the constant defined in grpc_file_handlers
 					}
+					taskArgs, _ = json.Marshal(beaconArgs)
+					log.Printf("Prepared chunked download task for %s (%d bytes)", downloadArgs.Destination, fileInfo.Size())
 				}
 			}
 		case "upload":

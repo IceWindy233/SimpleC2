@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -58,6 +59,37 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 	if err := s.Store.UpdateTask(task); err != nil {
 		log.Printf("Error updating task output: %v", err)
 		return nil, err
+	}
+
+	// After updating the task, check for side effects
+	if task.Command == "sleep" {
+		if newSleep, err := strconv.Atoi(task.Arguments); err == nil {
+			beacon, err := s.Store.GetBeacon(task.BeaconID)
+			if err != nil {
+				log.Printf("Error getting beacon %s for sleep update: %v", task.BeaconID, err)
+			} else {
+				beacon.Sleep = newSleep
+				if err := s.Store.UpdateBeacon(beacon); err != nil {
+					log.Printf("Error updating beacon %s sleep interval: %v", task.BeaconID, err)
+				} else {
+					// Broadcast the beacon metadata update event
+					beaconUpdateEvent := struct {
+						Type    string      `json:"type"`
+						Payload interface{} `json:"payload"`
+					}{
+						Type:    "BEACON_METADATA_UPDATED",
+						Payload: beacon,
+					}
+					beaconEventBytes, err := json.Marshal(beaconUpdateEvent)
+					if err != nil {
+						log.Printf("Error marshalling beacon update event: %v", err)
+					} else {
+						s.Hub.Broadcast(beaconEventBytes)
+						log.Printf("Broadcasted BEACON_METADATA_UPDATED event for %s", beacon.BeaconID)
+					}
+				}
+			}
+		}
 	}
 
 	// Broadcast the task update event via WebSocket

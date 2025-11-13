@@ -36,6 +36,8 @@ type TeamServerBridgeServiceClient interface {
 	LogListenerEvent(ctx context.Context, in *LogListenerEventRequest, opts ...grpc.CallOption) (*LogListenerEventResponse, error)
 	// 获取用于生成 Beacon 的配置
 	GetBeaconConfig(ctx context.Context, in *GetBeaconConfigRequest, opts ...grpc.CallOption) (*GetBeaconConfigResponse, error)
+	// 获取已分配任务的文件分片
+	GetTaskedFileChunk(ctx context.Context, in *GetTaskedFileChunkRequest, opts ...grpc.CallOption) (*GetTaskedFileChunkResponse, error)
 }
 
 type teamServerBridgeServiceClient struct {
@@ -109,6 +111,15 @@ func (c *teamServerBridgeServiceClient) GetBeaconConfig(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *teamServerBridgeServiceClient) GetTaskedFileChunk(ctx context.Context, in *GetTaskedFileChunkRequest, opts ...grpc.CallOption) (*GetTaskedFileChunkResponse, error) {
+	out := new(GetTaskedFileChunkResponse)
+	err := c.cc.Invoke(ctx, "/bridge.TeamServerBridgeService/GetTaskedFileChunk", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TeamServerBridgeServiceServer is the server API for TeamServerBridgeService service.
 // All implementations must embed UnimplementedTeamServerBridgeServiceServer
 // for forward compatibility
@@ -127,6 +138,8 @@ type TeamServerBridgeServiceServer interface {
 	LogListenerEvent(context.Context, *LogListenerEventRequest) (*LogListenerEventResponse, error)
 	// 获取用于生成 Beacon 的配置
 	GetBeaconConfig(context.Context, *GetBeaconConfigRequest) (*GetBeaconConfigResponse, error)
+	// 获取已分配任务的文件分片
+	GetTaskedFileChunk(context.Context, *GetTaskedFileChunkRequest) (*GetTaskedFileChunkResponse, error)
 	mustEmbedUnimplementedTeamServerBridgeServiceServer()
 }
 
@@ -154,6 +167,9 @@ func (UnimplementedTeamServerBridgeServiceServer) LogListenerEvent(context.Conte
 }
 func (UnimplementedTeamServerBridgeServiceServer) GetBeaconConfig(context.Context, *GetBeaconConfigRequest) (*GetBeaconConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBeaconConfig not implemented")
+}
+func (UnimplementedTeamServerBridgeServiceServer) GetTaskedFileChunk(context.Context, *GetTaskedFileChunkRequest) (*GetTaskedFileChunkResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTaskedFileChunk not implemented")
 }
 func (UnimplementedTeamServerBridgeServiceServer) mustEmbedUnimplementedTeamServerBridgeServiceServer() {
 }
@@ -295,6 +311,24 @@ func _TeamServerBridgeService_GetBeaconConfig_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TeamServerBridgeService_GetTaskedFileChunk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTaskedFileChunkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TeamServerBridgeServiceServer).GetTaskedFileChunk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/bridge.TeamServerBridgeService/GetTaskedFileChunk",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TeamServerBridgeServiceServer).GetTaskedFileChunk(ctx, req.(*GetTaskedFileChunkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TeamServerBridgeService_ServiceDesc is the grpc.ServiceDesc for TeamServerBridgeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -329,6 +363,10 @@ var TeamServerBridgeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBeaconConfig",
 			Handler:    _TeamServerBridgeService_GetBeaconConfig_Handler,
+		},
+		{
+			MethodName: "GetTaskedFileChunk",
+			Handler:    _TeamServerBridgeService_GetTaskedFileChunk_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

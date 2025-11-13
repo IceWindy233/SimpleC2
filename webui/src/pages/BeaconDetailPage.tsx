@@ -1,35 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from "react-router-dom";
-import { getBeacon, deleteBeacon } from '../services/api';
+import { getBeacon, getTasksForBeacon, deleteBeacon } from '../services/api';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import TaskingTerminal from '../components/TaskingTerminal';
 import FileBrowser from '../components/FileBrowser';
-
-// Define the type for a single beacon object based on our API response
-interface Beacon {
-  ID: number;
-  BeaconID: string;
-  OS: string;
-  Arch: string;
-  Hostname: string;
-  Username: string;
-  InternalIP: string;
-  LastSeen: string;
-  Status: string;
-  FirstSeen: string;
-  Listener: string;
-  Sleep: number; // New field for sleep interval
-}
-
-// Define the type for a single task object
-export interface Task {
-  TaskID: string;
-  Command: string;
-  Arguments: string;
-  Status: string;
-  Output: string;
-  CreatedAt: string;
-}
+import type { Beacon, Task } from '../types';
 
 const BeaconDetailPage = () => {
   const { beaconId } = useParams<{ beaconId: string }>();
@@ -41,19 +16,32 @@ const BeaconDetailPage = () => {
   const [deleting, setDeleting] = useState(false);
   const { lastMessage } = useWebSocket();
 
-  // Initial fetch for beacon details
+  // Initial fetch for beacon details and tasks
   useEffect(() => {
     if (!beaconId) return;
-    const fetchBeaconDetails = async () => {
+
+    const fetchBeaconData = async () => {
       try {
-        const data = await getBeacon(beaconId);
-        setBeacon(data);
+        // Fetch beacon details and tasks in parallel
+        const [beaconData, tasksData] = await Promise.all([
+          getBeacon(beaconId),
+          getTasksForBeacon(beaconId),
+        ]);
+        
+        setBeacon(beaconData);
+        // Sort tasks by creation date, newest first
+        const sortedTasks = tasksData.sort((a: Task, b: Task) => 
+          new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime()
+        );
+        setTasks(sortedTasks);
+
       } catch (err) {
-        setError('Failed to fetch beacon details.');
+        setError('Failed to fetch beacon data.');
         console.error(err);
       }
     };
-    fetchBeaconDetails();
+
+    fetchBeaconData();
   }, [beaconId]);
 
   // WebSocket message handling for real-time updates
@@ -61,9 +49,11 @@ const BeaconDetailPage = () => {
     if (lastMessage) {
       try {
         const event = JSON.parse(lastMessage.data);
-        if (event.payload.BeaconID !== beaconId) {
-          // Ignore events for other beacons
-          return;
+        
+        // Check if the event is relevant for this beacon
+        const eventBeaconId = event.payload.beacon_id || event.payload.BeaconID;
+        if (eventBeaconId !== beaconId) {
+          return; // Ignore events for other beacons
         }
 
         if (event.type === 'TASK_OUTPUT') {
@@ -71,12 +61,14 @@ const BeaconDetailPage = () => {
           setTasks(prevTasks =>
             prevTasks.map(t => (t.TaskID === updatedTask.TaskID ? updatedTask : t))
           );
-          // Also update the beacon's last seen time for responsiveness
-          setBeacon(prevBeacon => prevBeacon ? { ...prevBeacon, LastSeen: updatedTask.UpdatedAt } : null);
         
         } else if (event.type === 'BEACON_CHECKIN') {
           const { last_seen } = event.payload;
           setBeacon(prevBeacon => prevBeacon ? { ...prevBeacon, LastSeen: last_seen } : null);
+
+        } else if (event.type === 'BEACON_METADATA_UPDATED') {
+          const updatedBeacon = event.payload as Beacon;
+          setBeacon(updatedBeacon);
         }
       } catch (e) {
         console.error("Failed to parse WebSocket message", e);

@@ -67,17 +67,34 @@ export const getTask = async (taskId: string) => {
   return response.data.data;
 };
 
-export const uploadFile = async (file: File) => {
-  const formData = new FormData();
-  formData.append('file', file);
+export const getTasksForBeacon = async (beaconId: string) => {
+  const response = await api.get(`/beacons/${beaconId}/tasks`);
+  return response.data.data;
+};
 
-  const response = await api.post('/upload', formData, {
+// --- Chunked File Upload ---
+
+export const uploadInit = async (filename: string) => {
+  const response = await api.post('/upload/init', { filename });
+  return response.data;
+};
+
+export const uploadChunk = async (uploadId: string, chunkNumber: number, chunk: Blob) => {
+  const response = await api.post('/upload/chunk', chunk, {
     headers: {
-      'Content-Type': 'multipart/form-data',
+      'Content-Type': 'application/octet-stream',
+      'X-Upload-ID': uploadId,
+      'X-Chunk-Number': chunkNumber.toString(),
     },
   });
   return response.data;
 };
+
+export const uploadComplete = async (uploadId: string, filename: string) => {
+  const response = await api.post('/upload/complete', { upload_id: uploadId, filename });
+  return response.data;
+};
+
 
 export const downloadLootFile = async (filename: string) => {
   const response = await api.get(`/loot/${filename}`, {

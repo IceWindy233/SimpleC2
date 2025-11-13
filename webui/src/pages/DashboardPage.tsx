@@ -2,19 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getBeacons, deleteBeacon } from '../services/api';
 import { useWebSocket } from '../contexts/WebSocketContext';
-
-// Define the type for a single beacon object based on our API response
-interface Beacon {
-  ID: number;
-  BeaconID: string;
-  OS: string;
-  Arch: string;
-  Hostname: string;
-  Username: string;
-  InternalIP: string;
-  LastSeen: string;
-  Status: string;
-}
+import type { Beacon } from '../types';
 
 const DashboardPage = () => {
   const [beacons, setBeacons] = useState<Beacon[]>([]);

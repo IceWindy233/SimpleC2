@@ -1,9 +1,11 @@
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "./services/AuthContext";
+import { useWebSocket } from "./contexts/WebSocketContext";
 import { useEffect } from "react";
 
 function App() {
   const { logout, isAuthenticated } = useAuth();
+  const { disconnect } = useWebSocket();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -12,12 +14,17 @@ function App() {
     }
   }, [isAuthenticated, navigate]);
 
+  const handleLogout = () => {
+    disconnect(); // Disconnect WebSocket first
+    logout();     // Then clear auth state
+  };
+
   return (
     <div className="d-flex flex-column vh-100">
       {/* Navbar placeholder */}
       <header className="p-3 bg-dark text-white border-bottom d-flex justify-content-between align-items-center">
         <h5 className="mb-0">SimpleC2</h5>
-        <button className="btn btn-outline-light btn-sm" onClick={logout}>Logout</button>
+        <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>Logout</button>
       </header>
 
       <div className="d-flex flex-grow-1">

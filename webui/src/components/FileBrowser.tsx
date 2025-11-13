@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { createTask, getTask, downloadLootFile, uploadFile } from '../services/api';
+import { createTask, getTask, downloadLootFile, uploadInit, uploadChunk, uploadComplete } from '../services/api';
 import * as path from 'path-browserify';
 
 interface FileBrowserProps {
@@ -58,6 +58,8 @@ const FileBrowser = ({ beaconId }: FileBrowserProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [fileOpStatus, setFileOpStatus] = useState<Record<string, string>>({});
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activePollId = useRef<number | null>(null); // To store the current interval ID
 
@@ -161,17 +163,48 @@ const FileBrowser = ({ beaconId }: FileBrowserProps) => {
     if (!file) return;
 
     const filename = file.name;
-    setFileOpStatus(prev => ({ ...prev, [filename]: 'uploading' }));
+    setIsUploading(true);
+    setUploadProgress(0);
+    setError('');
+
+    const CHUNK_SIZE = 1024 * 1024; // 1MB
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
     try {
-      const uploadResponse = await uploadFile(file);
-      const serverPath = uploadResponse.filepath;
+      // 1. Initialize upload
+      const initResponse = await uploadInit(filename);
+      const { upload_id } = initResponse;
+
+      // 2. Upload chunks
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = start + CHUNK_SIZE;
+        const chunk = file.slice(start, end);
+        await uploadChunk(upload_id, i, chunk);
+        setUploadProgress(((i + 1) / totalChunks) * 100);
+      }
+
+      // 3. Complete upload
+      const completeResponse = await uploadComplete(upload_id, filename);
+      const serverPath = completeResponse.filepath;
+
+      // 4. Task beacon to download the file from the server
       const destinationPath = path.join(currentPath, filename);
       const args = JSON.stringify({ source: serverPath, destination: destinationPath });
       await createTask(beaconId, 'download', args);
-      setFileOpStatus(prev => ({ ...prev, [filename]: 'tasked' }));
+      
+      alert(`File '${filename}' uploaded to server and tasked for download to beacon.`);
+
     } catch (err) {
       console.error(`Failed to upload file to beacon ${filename}:`, err);
-      setFileOpStatus(prev => ({ ...prev, [filename]: 'error' }));
+      setError(`Failed to upload file: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+      // Reset file input to allow re-uploading the same file
+      if(fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -180,13 +213,27 @@ const FileBrowser = ({ beaconId }: FileBrowserProps) => {
       <div className="card-header d-flex justify-content-between align-items-center">
         <span>File Browser: <code>{currentPath}</code></span>
         <div>
-          <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleUploadToBeacon} />
-          <button className="btn btn-sm btn-success me-2" onClick={() => fileInputRef.current?.click()}>Upload File</button>
-          <button className="btn btn-sm btn-outline-secondary" onClick={handleRefresh} disabled={isLoading}>
+          <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleUploadToBeacon} disabled={isUploading} />
+          <button className="btn btn-sm btn-success me-2" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+            {isUploading ? `Uploading... ${uploadProgress.toFixed(0)}%` : 'Upload File'}
+          </button>
+          <button className="btn btn-sm btn-outline-secondary" onClick={handleRefresh} disabled={isLoading || isUploading}>
             {isLoading ? 'Loading...' : 'Refresh'}
           </button>
         </div>
       </div>
+      {isUploading && (
+        <div className="progress" style={{ height: '4px' }}>
+          <div 
+            className="progress-bar" 
+            role="progressbar" 
+            style={{ width: `${uploadProgress}%` }} 
+            aria-valuenow={uploadProgress} 
+            aria-valuemin={0} 
+            aria-valuemax={100}
+          ></div>
+        </div>
+      )}
       <div className="card-body" style={{minHeight: '300px'}}>
         {error && <div className="alert alert-danger">{error}</div>}
         <table className="table table-dark table-hover table-sm">
@@ -201,6 +248,7 @@ const FileBrowser = ({ beaconId }: FileBrowserProps) => {
           </thead>
           <tbody>
             <tr onClick={() => {
+              if (isUploading) return;
               const newPath = getParentPath(currentPath);
               console.log('Navigating UP. currentPath:', currentPath, 'newPath:', newPath);
               setRequestedPath(newPath);
@@ -211,6 +259,7 @@ const FileBrowser = ({ beaconId }: FileBrowserProps) => {
             {files.map((file, index) => (
               <tr key={index}>
                 <td onClick={() => {
+                  if (isUploading || !file.is_dir) return;
                   if (file.is_dir) {
                     const newPath = path.join(currentPath, file.name);
                     console.log('Navigating INTO. currentPath:', currentPath, 'clicked file:', file.name, 'newPath:', newPath);
@@ -227,7 +276,7 @@ const FileBrowser = ({ beaconId }: FileBrowserProps) => {
                     <button 
                       className="btn btn-sm btn-outline-light"
                       onClick={() => handleDownloadFromBeacon(file.name)}
-                      disabled={!!fileOpStatus[file.name] && fileOpStatus[file.name] !== 'done' && fileOpStatus[file.name] !== 'error'}
+                      disabled={isUploading || (!!fileOpStatus[file.name] && fileOpStatus[file.name] !== 'done' && fileOpStatus[file.name] !== 'error')}
                     >
                       {fileOpStatus[file.name] === 'queued' && 'Queued...'}
                       {fileOpStatus[file.name] === 'downloading' && 'Downloading...'}

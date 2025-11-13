@@ -22,7 +22,7 @@ func NewRouter(cfg *config.TeamServerConfig, store data.DataStore, hub *websocke
 	// Add CORS middleware
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowAllOrigins = true // For development; in production, lock this down.
-	corsConfig.AllowHeaders = append(corsConfig.AllowHeaders, "Authorization")
+	corsConfig.AllowHeaders = append(corsConfig.AllowHeaders, "Authorization", "X-Upload-ID", "X-Chunk-Number")
 	router.Use(cors.New(corsConfig))
 
 	api := &API{Config: cfg, Store: store, Hub: hub}
@@ -49,7 +49,8 @@ func NewRouter(cfg *config.TeamServerConfig, store data.DataStore, hub *websocke
 		protected.DELETE("/beacons/:beacon_id", api.DeleteBeacon)
 
 		// Task management
-		protected.POST("/beacons/:beacon_id/tasks", api.CreateBeaconTask)
+		protected.POST("/beacons/:beacon_id/tasks", api.CreateTaskForBeacon)
+		protected.GET("/beacons/:beacon_id/tasks", api.GetTasksForBeacon)
 		protected.GET("/tasks/:task_id", api.GetTask)
 
 		// Listener management
@@ -58,7 +59,9 @@ func NewRouter(cfg *config.TeamServerConfig, store data.DataStore, hub *websocke
 		protected.DELETE("/listeners/:name", api.DeleteListener)
 
 		// File operations
-		protected.POST("/upload", api.UploadFile)
+		protected.POST("/upload/init", api.UploadInit)
+		protected.POST("/upload/chunk", api.UploadChunk)
+		protected.POST("/upload/complete", api.UploadComplete)
 		protected.GET("/loot/:filename", api.DownloadLootFile)
 	}
 

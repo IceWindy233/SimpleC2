@@ -1,7 +1,6 @@
 package api
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -52,7 +51,7 @@ func (a *API) DeleteBeacon(c *gin.Context) {
 
 		// 2. Create an exit task for the beacon.
 		exitTask := data.Task{
-			TaskID:    uuid.New().String(),
+			TaskID:    "task-exit-" + uuid.New().String(), // Add a prefix for clarity
 			BeaconID:  beaconID,
 			Command:   "exit",
 			Arguments: "",
@@ -78,50 +77,9 @@ func (a *API) DeleteBeacon(c *gin.Context) {
 			return
 		}
 		// For any other transaction error.
-		log.Printf("Error in delete beacon transaction for %s: %v", beaconID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete beacon and create exit task"})
 		return
 	}
 
 	c.Status(http.StatusNoContent)
-}
-
-// CreateTaskRequest defines the structure for the task creation API request body.
-type CreateTaskRequest struct {
-	Command   string `json:"command" binding:"required"`
-	Arguments string `json:"arguments"`
-}
-
-// CreateBeaconTask handles the API request to create a new task for a beacon.
-func (a *API) CreateBeaconTask(c *gin.Context) {
-	beaconID := c.Param("beacon_id")
-
-	var req CreateTaskRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	_, err := a.Store.GetBeacon(beaconID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Beacon not found"})
-		return
-	}
-
-	task := data.Task{
-		TaskID:    uuid.New().String(),
-		BeaconID:  beaconID,
-		Command:   req.Command,
-		Arguments: req.Arguments,
-		Status:    "queued",
-	}
-
-	log.Printf("Creating task - Command: %s, Arguments: %q, Length: %d", req.Command, req.Arguments, len(req.Arguments))
-
-	if err := a.Store.CreateTask(&task); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create task"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{"data": task})
 }

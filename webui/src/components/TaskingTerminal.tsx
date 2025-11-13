@@ -1,14 +1,6 @@
 import { useState } from 'react';
 import { createTask, downloadLootFile } from '../services/api';
-
-interface Task {
-  TaskID: string;
-  Command: string;
-  Arguments: string;
-  Status: string;
-  Output: string;
-  CreatedAt: string;
-}
+import type { Task } from '../types';
 
 interface TaskingTerminalProps {
   beaconId: string;
