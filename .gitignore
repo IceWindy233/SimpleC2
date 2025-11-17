@@ -64,3 +64,5 @@ GEMINI.md
 
 # Github
 .github
+.gemini/
+gha-creds-*.json
