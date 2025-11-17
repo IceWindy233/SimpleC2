@@ -2,9 +2,9 @@ package api
 
 import (
 	"net/http"
+	"simplec2/teamserver/service"
 
 	"github.com/gin-gonic/gin"
-	"simplec2/teamserver/data"
 )
 
 // --- Listener Handlers ---
@@ -22,14 +22,11 @@ func (a *API) CreateListener(c *gin.Context) {
 		return
 	}
 
-	listener := data.Listener{
-		Name:   req.Name,
-		Type:   req.Type,
-		Config: req.Config,
-	}
+	var _ service.ListenerService // 强制使用service包
 
-	if err := a.Store.CreateListener(&listener); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create listener"})
+	listener, err := a.ListenerService.CreateListener(c.Request.Context(), req.Name, req.Type, req.Config)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -37,7 +34,7 @@ func (a *API) CreateListener(c *gin.Context) {
 }
 
 func (a *API) GetListeners(c *gin.Context) {
-	listeners, err := a.Store.GetListeners()
+	listeners, err := a.ListenerService.ListListeners(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -47,8 +44,9 @@ func (a *API) GetListeners(c *gin.Context) {
 
 func (a *API) DeleteListener(c *gin.Context) {
 	listenerName := c.Param("name")
-	if err := a.Store.DeleteListener(listenerName); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete listener"})
+	err := a.ListenerService.DeleteListener(c.Request.Context(), listenerName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.Status(http.StatusNoContent)

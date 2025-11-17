@@ -1,18 +1,18 @@
 package api
 
 import (
-	"log"
 	"net/http"
+	"simplec2/teamserver/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"simplec2/teamserver/data"
 )
 
 // GetTask handles the API request to retrieve a single task by its ID.
 func (a *API) GetTask(c *gin.Context) {
+	var _ service.TaskService // 强制使用service包
+
 	taskID := c.Param("task_id")
-	task, err := a.Store.GetTask(taskID)
+	task, err := a.TaskService.GetTask(c.Request.Context(), taskID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
 		return
@@ -23,15 +23,10 @@ func (a *API) GetTask(c *gin.Context) {
 // GetTasksForBeacon handles the API request to retrieve all tasks for a specific beacon.
 func (a *API) GetTasksForBeacon(c *gin.Context) {
 	beaconID := c.Param("beacon_id")
-	// First, check if beacon exists to return a 404 if not
-	if _, err := a.Store.GetBeacon(beaconID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Beacon not found"})
-		return
-	}
 
-	tasks, err := a.Store.GetTasksByBeaconID(beaconID)
+	tasks, err := a.TaskService.GetTasksByBeaconID(c.Request.Context(), beaconID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve tasks for beacon"})
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": tasks})
@@ -53,24 +48,9 @@ func (a *API) CreateTaskForBeacon(c *gin.Context) {
 		return
 	}
 
-	_, err := a.Store.GetBeacon(beaconID)
+	task, err := a.TaskService.CreateTask(c.Request.Context(), beaconID, req.Command, req.Arguments)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Beacon not found"})
-		return
-	}
-
-	task := data.Task{
-		TaskID:    uuid.New().String(),
-		BeaconID:  beaconID,
-		Command:   req.Command,
-		Arguments: req.Arguments,
-		Status:    "queued",
-	}
-
-	log.Printf("Creating task - Command: %s, Arguments: %q, Length: %d", req.Command, req.Arguments, len(req.Arguments))
-
-	if err := a.Store.CreateTask(&task); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create task"})
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 

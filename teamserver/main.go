@@ -13,6 +13,7 @@ import (
 	"simplec2/pkg/config"
 	"simplec2/teamserver/api"
 	"simplec2/teamserver/data"
+	"simplec2/teamserver/service"
 	"simplec2/teamserver/websocket"
 
 	"google.golang.org/grpc"
@@ -60,6 +61,11 @@ func main() {
 	}
 	log.Println("Database initialized successfully.")
 
+	// Initialize services
+	beaconService := service.NewBeaconService(store)
+	taskService := service.NewTaskService(store)
+	listenerService := service.NewListenerService(store)
+
 	// Create and run the WebSocket hub
 	hub := websocket.NewHub()
 	go hub.Run()
@@ -101,7 +107,7 @@ func main() {
 	}()
 
 	go func() {
-		router := api.NewRouter(&cfg, store, hub)
+		router := api.NewRouter(&cfg, beaconService, taskService, listenerService, hub)
 		log.Printf("HTTP API server listening on %s", cfg.API.Port)
 		if err := router.Run(cfg.API.Port); err != nil {
 			log.Fatalf("Failed to run HTTP server: %v", err)

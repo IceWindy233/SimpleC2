@@ -4,19 +4,21 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"simplec2/pkg/config"
-	"simplec2/teamserver/data"
+	"simplec2/teamserver/service"
 	"simplec2/teamserver/websocket"
 )
 
 // API holds the configuration and dependencies for the API handlers.
 type API struct {
-	Config *config.TeamServerConfig
-	Store  data.DataStore
-	Hub    *websocket.Hub
+	Config          *config.TeamServerConfig
+	BeaconService   service.BeaconService
+	TaskService     service.TaskService
+	ListenerService service.ListenerService
+	Hub             *websocket.Hub
 }
 
 // NewRouter sets up the API routes and returns the Gin engine.
-func NewRouter(cfg *config.TeamServerConfig, store data.DataStore, hub *websocket.Hub) *gin.Engine {
+func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService, taskService service.TaskService, listenerService service.ListenerService, hub *websocket.Hub) *gin.Engine {
 	router := gin.Default()
 
 	// Add CORS middleware
@@ -25,7 +27,13 @@ func NewRouter(cfg *config.TeamServerConfig, store data.DataStore, hub *websocke
 	corsConfig.AllowHeaders = append(corsConfig.AllowHeaders, "Authorization", "X-Upload-ID", "X-Chunk-Number")
 	router.Use(cors.New(corsConfig))
 
-	api := &API{Config: cfg, Store: store, Hub: hub}
+	api := &API{
+		Config:          cfg,
+		BeaconService:   beaconService,
+		TaskService:     taskService,
+		ListenerService: listenerService,
+		Hub:             hub,
+	}
 
 	// 获取 JWT 签名密钥
 	jwtSecret := config.GetJWTSecret(cfg.Auth.JWTSecret)
