@@ -2,7 +2,6 @@ package data
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
@@ -10,6 +9,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"simplec2/pkg/config"
+	"simplec2/pkg/logger"
 )
 
 // DataStore defines the interface for all database operations.
@@ -64,11 +64,11 @@ func NewDataStore(cfg config.DatabaseConfig) (DataStore, error) {
 		return nil, fmt.Errorf("unsupported database type: %s", cfg.Type)
 	}
 
-	log.Println("Running database migrations...")
+	logger.Info("Running database migrations...")
 	if err := db.AutoMigrate(&Beacon{}, &Task{}, &Listener{}); err != nil {
 		return nil, fmt.Errorf("failed to auto-migrate database: %w", err)
 	}
 
-	log.Println("Database connection successful and schema migrated.")
+	logger.Info("Database connection successful and schema migrated.")
 	return &GormStore{DB: db}, nil
 }

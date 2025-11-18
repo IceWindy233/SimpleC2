@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"os"
 	"time"
 
@@ -12,11 +11,12 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"simplec2/pkg/bridge"
+	"simplec2/pkg/logger"
 	"simplec2/teamserver/data"
 )
 
 func (s *server) StageBeacon(ctx context.Context, in *bridge.StageBeaconRequest) (*bridge.StageBeaconResponse, error) {
-	log.Printf("Received StageBeacon from listener: %s", in.ListenerName)
+	logger.Infof("Received StageBeacon from listener: %s", in.ListenerName)
 
 	// Extract remote address from gRPC context
 	var remoteAddr string
@@ -44,11 +44,11 @@ func (s *server) StageBeacon(ctx context.Context, in *bridge.StageBeaconRequest)
 	}
 
 	if err := s.Store.CreateBeacon(&beacon); err != nil {
-		log.Printf("Error saving beacon to database: %v", err)
+		logger.Errorf("Error saving beacon to database: %v", err)
 		return nil, err
 	}
 
-	log.Printf("New beacon with ID %s saved to database", beacon.BeaconID)
+	logger.Infof("New beacon with ID %s saved to database", beacon.BeaconID)
 
 	// Broadcast the new beacon event via WebSocket
 	event := struct {
@@ -60,10 +60,10 @@ func (s *server) StageBeacon(ctx context.Context, in *bridge.StageBeaconRequest)
 	}
 	eventBytes, err := json.Marshal(event)
 	if err != nil {
-		log.Printf("Error marshalling new beacon event: %v", err)
+		logger.Errorf("Error marshalling new beacon event: %v", err)
 	} else {
 		s.Hub.Broadcast(eventBytes)
-		log.Printf("Broadcasted BEACON_NEW event for %s", beacon.BeaconID)
+		logger.Infof("Broadcasted BEACON_NEW event for %s", beacon.BeaconID)
 	}
 
 	return &bridge.StageBeaconResponse{
@@ -72,11 +72,11 @@ func (s *server) StageBeacon(ctx context.Context, in *bridge.StageBeaconRequest)
 }
 
 func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequest) (*bridge.CheckInBeaconResponse, error) {
-	log.Printf("Received CheckInBeacon from beacon: %s", in.BeaconId)
+	logger.Infof("Received CheckInBeacon from beacon: %s", in.BeaconId)
 
 	beacon, err := s.Store.GetBeacon(in.BeaconId)
 	if err != nil {
-		log.Printf("Beacon %s not found during check-in: %v. Assuming exited.", in.BeaconId, err)
+		logger.Warnf("Beacon %s not found during check-in: %v. Assuming exited.", in.BeaconId, err)
 		return nil, status.Errorf(codes.NotFound, "beacon not found")
 	}
 
@@ -85,7 +85,7 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 
 	// If beacon is in 'exiting' state, send it an exit task.
 	if beacon.Status == "exiting" {
-		log.Printf("Beacon %s is in 'exiting' state. Sending final exit task.", in.BeaconId)
+		logger.Infof("Beacon %s is in 'exiting' state. Sending final exit task.", in.BeaconId)
 		var grpcTasks []*bridge.Task
 		grpcTasks = append(grpcTasks, &bridge.Task{
 			TaskId:    uuid.New().String(),
@@ -119,7 +119,7 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 	}
 	eventBytes, err := json.Marshal(checkinEvent)
 	if err != nil {
-		log.Printf("Error marshalling check-in event: %v", err)
+		logger.Errorf("Error marshalling check-in event: %v", err)
 	} else {
 		s.Hub.Broadcast(eventBytes)
 	}
@@ -129,7 +129,7 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 
 	allTasks, err := s.Store.GetTasksByBeaconID(in.BeaconId)
 	if err != nil {
-		log.Printf("Error getting tasks for beacon %s: %v", in.BeaconId, err)
+		logger.Errorf("Error getting tasks for beacon %s: %v", in.BeaconId, err)
 		return nil, err
 	}
 
@@ -148,7 +148,7 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 		case "download":
 			cmdID = 2
 			if dbTask.Arguments == "" {
-				log.Printf("Download task %s has no arguments", dbTask.TaskID)
+				logger.Warnf("Download task %s has no arguments", dbTask.TaskID)
 				taskArgs = nil
 			} else {
 				var downloadArgs struct {
@@ -156,14 +156,14 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 					Destination string `json:"destination"`
 				}
 				if err := json.Unmarshal([]byte(dbTask.Arguments), &downloadArgs); err != nil {
-					log.Printf("Failed to parse download arguments for task %s: %v", dbTask.TaskID, err)
+					logger.Errorf("Failed to parse download arguments for task %s: %v", dbTask.TaskID, err)
 					taskArgs = nil
 				} else {
 					sourcePath := downloadArgs.Source
-					
+
 					fileInfo, err := os.Stat(sourcePath)
 					if err != nil {
-						log.Printf("Failed to get file info for %s: %v", sourcePath, err)
+						logger.Errorf("Failed to get file info for %s: %v", sourcePath, err)
 						// Optionally, update task to 'error' state here.
 						continue
 					}
@@ -181,7 +181,7 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 						ChunkSize:   ChunkSize, // Use the constant defined in grpc_file_handlers
 					}
 					taskArgs, _ = json.Marshal(beaconArgs)
-					log.Printf("Prepared chunked download task for %s (%d bytes)", downloadArgs.Destination, fileInfo.Size())
+					logger.Infof("Prepared chunked download task for %s (%d bytes)", downloadArgs.Destination, fileInfo.Size())
 				}
 			}
 		case "upload":
@@ -193,19 +193,19 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 		case "sleep":
 			cmdID = 5
 			// 解析sleep参数，验证范围 (1-3600秒)
-			log.Printf("Processing sleep task %s: Arguments=%q (len=%d)", dbTask.TaskID, dbTask.Arguments, len(dbTask.Arguments))
+			logger.Infof("Processing sleep task %s: Arguments=%q (len=%d)", dbTask.TaskID, dbTask.Arguments, len(dbTask.Arguments))
 			if dbTask.Arguments != "" {
 				taskArgs = []byte(dbTask.Arguments)
 			} else {
 				// 默认sleep值
 				taskArgs = []byte("5")
 			}
-			log.Printf("Sleep task %s: taskArgs=%q (len=%d)", dbTask.TaskID, taskArgs, len(taskArgs))
+			logger.Debugf("Sleep task %s: taskArgs=%q (len=%d)", dbTask.TaskID, taskArgs, len(taskArgs))
 		case "browse":
 			cmdID = 6
 			taskArgs = []byte(dbTask.Arguments)
 		default:
-			log.Printf("Unknown command type for task %s: %s", dbTask.TaskID, dbTask.Command)
+			logger.Warnf("Unknown command type for task %s: %s", dbTask.TaskID, dbTask.Command)
 			continue
 		}
 

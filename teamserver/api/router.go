@@ -14,11 +14,12 @@ type API struct {
 	BeaconService   service.BeaconService
 	TaskService     service.TaskService
 	ListenerService service.ListenerService
+	AuditService    service.AuditService
 	Hub             *websocket.Hub
 }
 
 // NewRouter sets up the API routes and returns the Gin engine.
-func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService, taskService service.TaskService, listenerService service.ListenerService, hub *websocket.Hub) *gin.Engine {
+func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService, taskService service.TaskService, listenerService service.ListenerService, auditService service.AuditService, hub *websocket.Hub) *gin.Engine {
 	router := gin.Default()
 
 	// Add CORS middleware
@@ -32,6 +33,7 @@ func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService
 		BeaconService:   beaconService,
 		TaskService:     taskService,
 		ListenerService: listenerService,
+		AuditService:    auditService,
 		Hub:             hub,
 	}
 
@@ -47,6 +49,7 @@ func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService
 	// Protected group for C2 operations
 	protected := router.Group("/api")
 	protected.Use(AuthMiddleware(jwtSecret))
+	protected.Use(api.AuditMiddleware()) // Add audit logging to all protected endpoints
 	{
 		// WebSocket endpoint
 		protected.GET("/ws", api.serveWs)
@@ -71,6 +74,9 @@ func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService
 		protected.POST("/upload/chunk", api.UploadChunk)
 		protected.POST("/upload/complete", api.UploadComplete)
 		protected.GET("/loot/:filename", api.DownloadLootFile)
+
+		// Audit log operations
+		protected.GET("/audit-logs", api.GetAuditLogs)
 	}
 
 	return router

@@ -1,16 +1,16 @@
 package main
 
-import (
+import(
 	"crypto/tls"
 	"crypto/x509"
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"os"
 
 	"simplec2/pkg/bridge"
 	"simplec2/pkg/config"
+	"simplec2/pkg/logger"
 	"simplec2/teamserver/api"
 	"simplec2/teamserver/data"
 	"simplec2/teamserver/service"
@@ -24,31 +24,38 @@ import (
 var cfg config.TeamServerConfig
 
 func main() {
+	// Initialize structured logger (zap)
+	if err := logger.Init("info"); err != nil {
+		fmt.Printf("Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Sync()
+
 	configPath := flag.String("config", "teamserver.yaml", "Path to the TeamServer configuration file.")
 	hashPassword := flag.Bool("hash-password", false, "Hash the operator password from the config file and exit.")
 	flag.Parse()
 
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
-		log.Printf("Configuration file not found. Generating a default one at '%s'", *configPath)
+		logger.Infof("Configuration file not found. Generating a default one at '%s'", *configPath)
 		if err := generateDefaultConfig(*configPath); err != nil {
-			log.Fatalf("Failed to generate default config: %v", err)
+			logger.Fatalf("Failed to generate default config: %v", err)
 		}
-		log.Println("Please review and edit the new configuration file, then restart the server.")
+		logger.Info("Please review and edit the new configuration file, then restart the server.")
 		return
 	}
 
 	if err := config.LoadConfig(*configPath, &cfg); err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		logger.Fatalf("Failed to load configuration: %v", err)
 	}
-	log.Println("Configuration loaded successfully.")
+	logger.Info("Configuration loaded successfully.")
 
 	if *hashPassword {
 		if cfg.Auth.OperatorPassword == "" {
-			log.Fatal("Operator password is not set in the configuration file.")
+			logger.Fatal("Operator password is not set in the configuration file.")
 		}
 		hashedPassword, err := api.HashPassword(cfg.Auth.OperatorPassword)
 		if err != nil {
-			log.Fatalf("Failed to hash password: %v", err)
+			logger.Fatalf("Failed to hash password: %v", err)
 		}
 		fmt.Printf("Hashed password for your config file (replace operator_password with this value):\n%s\n", hashedPassword)
 		return
@@ -57,14 +64,15 @@ func main() {
 	// Initialize the DataStore
 	store, err := data.NewDataStore(cfg.Database)
 	if err != nil {
-		log.Fatalf("Failed to initialize data store: %v", err)
+		logger.Fatalf("Failed to initialize data store: %v", err)
 	}
-	log.Println("Database initialized successfully.")
+	logger.Info("Database initialized successfully.")
 
 	// Initialize services
 	beaconService := service.NewBeaconService(store)
 	taskService := service.NewTaskService(store)
 	listenerService := service.NewListenerService(store)
+	auditService := service.NewAuditService(store)
 
 	// Create and run the WebSocket hub
 	hub := websocket.NewHub()
@@ -72,13 +80,13 @@ func main() {
 
 	creds, err := loadTeamServerCreds(cfg.GRPC.Certs.ServerCert, cfg.GRPC.Certs.ServerKey, cfg.GRPC.Certs.CACert)
 	if err != nil {
-		log.Fatalf("Failed to load TLS credentials: %v", err)
+		logger.Fatalf("Failed to load TLS credentials: %v", err)
 	}
 
 	// 获取 API Key（优先使用加密版本）
 	apiKey, err := cfg.Auth.GetAPIKey()
 	if err != nil {
-		log.Fatalf("Failed to get API key: %v", err)
+		logger.Fatalf("Failed to get API key: %v", err)
 	}
 
 	// Correctly create the auth interceptor
@@ -98,19 +106,19 @@ func main() {
 	go func() {
 		lis, err := net.Listen("tcp", cfg.GRPC.Port)
 		if err != nil {
-			log.Fatalf("Failed to listen on gRPC port: %v", err)
+			logger.Fatalf("Failed to listen on gRPC port: %v", err)
 		}
-		log.Printf("gRPC server listening on %s", cfg.GRPC.Port)
+		logger.Infof("gRPC server listening on %s", cfg.GRPC.Port)
 		if err := grpcServer.Serve(lis); err != nil {
-			log.Fatalf("Failed to serve gRPC: %v", err)
+			logger.Fatalf("Failed to serve gRPC: %v", err)
 		}
 	}()
 
 	go func() {
-		router := api.NewRouter(&cfg, beaconService, taskService, listenerService, hub)
-		log.Printf("HTTP API server listening on %s", cfg.API.Port)
+		router := api.NewRouter(&cfg, beaconService, taskService, listenerService, auditService, hub)
+		logger.Infof("HTTP API server listening on %s", cfg.API.Port)
 		if err := router.Run(cfg.API.Port); err != nil {
-			log.Fatalf("Failed to run HTTP server: %v", err)
+			logger.Fatalf("Failed to run HTTP server: %v", err)
 		}
 	}()
 

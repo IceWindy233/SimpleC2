@@ -53,3 +53,16 @@ type Listener struct {
 	Config string `gorm:"type:text"` // Store listener-specific config as a JSON string
 }
 
+// AuditLog represents an audit trail entry for tracking user actions.
+type AuditLog struct {
+	ID           uint      `gorm:"primarykey"`
+	Timestamp    time.Time `gorm:"not null;index"`
+	Username     string    `gorm:"not null;index"` // Who performed the action
+	Action       string    `gorm:"not null;index"` // Action type: DELETE_BEACON, CREATE_TASK, etc.
+	ResourceType string    // Resource type: beacon, task, listener, etc.
+	ResourceID   string    // Resource identifier
+	IPAddress    string    // Client IP address
+	Result       string    // success or failure
+	Details      string    `gorm:"type:text"` // Additional details about the action
+}
+

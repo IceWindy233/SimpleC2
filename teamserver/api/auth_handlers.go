@@ -1,7 +1,6 @@
 package api
 
 import (
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"simplec2/pkg/config"
+	"simplec2/pkg/logger"
 )
 
 // HashPassword 使用 bcrypt 哈希密码
@@ -50,7 +50,7 @@ func (a *API) Login() gin.HandlerFunc {
 			}
 		} else {
 			// 存储的是明文，直接比较（不安全）
-			log.Println("Warning: The operator password is in plaintext. Please use the -hash-password flag to generate a hash and update your config file for better security.")
+			logger.Warn("The operator password is in plaintext. Please use the -hash-password flag to generate a hash and update your config file for better security.")
 			if req.Password != storedPassword {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 				return
@@ -116,6 +116,12 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		if err != nil || !token.Valid {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			return
+		}
+
+		// Store the token claims in the context for other middleware
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			c.Set("userClaims", claims)
+			c.Set("username", claims["sub"])
 		}
 
 		c.Next()

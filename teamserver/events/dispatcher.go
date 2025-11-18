@@ -1,8 +1,9 @@
 package events
 
 import (
-	"log"
 	"sync"
+
+	"simplec2/pkg/logger"
 )
 
 // Dispatcher handles event publishing and subscription.
@@ -75,5 +76,5 @@ func (d *Dispatcher) PublishAsync(event Event) {
 func (d *Dispatcher) PublishToWebsocket(event Event, hub interface{}) {
 	// Convert event to JSON
 	// TODO: Implement this when integrating with websocket hub
-	log.Printf("Event published: %s - %v\n", event.Type, event.Payload)
+	logger.Debugf("Event published: %s - %v\n", event.Type, event.Payload)
 }

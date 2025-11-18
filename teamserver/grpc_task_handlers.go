@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,14 +13,15 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
 	"simplec2/pkg/bridge"
+	"simplec2/pkg/logger"
 )
 
 func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutputRequest) (*bridge.PushBeaconOutputResponse, error) {
-	log.Printf("Received PushBeaconOutput for task %s from beacon: %s", in.TaskId, in.BeaconId)
+	logger.Infof("Received PushBeaconOutput for task %s from beacon: %s", in.TaskId, in.BeaconId)
 
 	task, err := s.Store.GetTask(in.TaskId)
 	if err != nil {
-		log.Printf("Error finding task %s: %v", in.TaskId, err)
+		logger.Errorf("Error finding task %s: %v", in.TaskId, err)
 		return nil, err
 	}
 
@@ -32,10 +32,10 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 		lootFilePath := filepath.Join(s.Config.LootDir, lootFileName)
 
 		if err := os.WriteFile(lootFilePath, in.Output, 0644); err != nil {
-			log.Printf("Error saving uploaded file for task %s: %v", task.TaskID, err)
+			logger.Errorf("Error saving uploaded file for task %s: %v", task.TaskID, err)
 			outputMessage = fmt.Sprintf("Failed to save uploaded file: %v", err)
 		} else {
-			log.Printf("Saved uploaded file to %s", lootFilePath)
+			logger.Infof("Saved uploaded file to %s", lootFilePath)
 			outputMessage = lootFileName
 		}
 	} else if task.Command == "exit" {
@@ -57,7 +57,7 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 	task.Status = "completed"
 	task.Output = outputMessage
 	if err := s.Store.UpdateTask(task); err != nil {
-		log.Printf("Error updating task output: %v", err)
+		logger.Errorf("Error updating task output: %v", err)
 		return nil, err
 	}
 
@@ -66,11 +66,11 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 		if newSleep, err := strconv.Atoi(task.Arguments); err == nil {
 			beacon, err := s.Store.GetBeacon(task.BeaconID)
 			if err != nil {
-				log.Printf("Error getting beacon %s for sleep update: %v", task.BeaconID, err)
+				logger.Errorf("Error getting beacon %s for sleep update: %v", task.BeaconID, err)
 			} else {
 				beacon.Sleep = newSleep
 				if err := s.Store.UpdateBeacon(beacon); err != nil {
-					log.Printf("Error updating beacon %s sleep interval: %v", task.BeaconID, err)
+					logger.Errorf("Error updating beacon %s sleep interval: %v", task.BeaconID, err)
 				} else {
 					// Broadcast the beacon metadata update event
 					beaconUpdateEvent := struct {
@@ -82,10 +82,10 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 					}
 					beaconEventBytes, err := json.Marshal(beaconUpdateEvent)
 					if err != nil {
-						log.Printf("Error marshalling beacon update event: %v", err)
+						logger.Errorf("Error marshalling beacon update event: %v", err)
 					} else {
 						s.Hub.Broadcast(beaconEventBytes)
-						log.Printf("Broadcasted BEACON_METADATA_UPDATED event for %s", beacon.BeaconID)
+						logger.Infof("Broadcasted BEACON_METADATA_UPDATED event for %s", beacon.BeaconID)
 					}
 				}
 			}
@@ -102,10 +102,10 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 	}
 	eventBytes, err := json.Marshal(event)
 	if err != nil {
-		log.Printf("Error marshalling task output event: %v", err)
+		logger.Errorf("Error marshalling task output event: %v", err)
 	} else {
 		s.Hub.Broadcast(eventBytes)
-		log.Printf("Broadcasted TASK_OUTPUT event for %s", task.TaskID)
+		logger.Infof("Broadcasted TASK_OUTPUT event for %s", task.TaskID)
 	}
 
 	return &bridge.PushBeaconOutputResponse{}, nil

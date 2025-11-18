@@ -2,11 +2,11 @@ package websocket
 
 import (
 	"bytes"
-	"log"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"simplec2/pkg/logger"
 )
 
 const (
@@ -51,7 +51,7 @@ func (c *Client) ReadPump() {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
+				logger.Errorf("WebSocket error: %v", err)
 			}
 			break
 		}
@@ -104,7 +104,7 @@ func (c *Client) WritePump() {
 func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println(err)
+		logger.Errorf("WebSocket upgrade error: %v", err)
 		return
 	}
 	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256)}
