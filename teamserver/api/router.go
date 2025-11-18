@@ -14,12 +14,12 @@ type API struct {
 	BeaconService   service.BeaconService
 	TaskService     service.TaskService
 	ListenerService service.ListenerService
-	AuditService    service.AuditService
+	SessionService  *service.SessionService
 	Hub             *websocket.Hub
 }
 
 // NewRouter sets up the API routes and returns the Gin engine.
-func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService, taskService service.TaskService, listenerService service.ListenerService, auditService service.AuditService, hub *websocket.Hub) *gin.Engine {
+func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService, taskService service.TaskService, listenerService service.ListenerService, sessionService *service.SessionService, hub *websocket.Hub) *gin.Engine {
 	router := gin.Default()
 
 	// Add CORS middleware
@@ -33,7 +33,7 @@ func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService
 		BeaconService:   beaconService,
 		TaskService:     taskService,
 		ListenerService: listenerService,
-		AuditService:    auditService,
+		SessionService:  sessionService,
 		Hub:             hub,
 	}
 
@@ -44,12 +44,12 @@ func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService
 	auth := router.Group("/api/auth")
 	{
 		auth.POST("/login", api.Login())
+		auth.POST("/logout", api.Logout())
 	}
 
 	// Protected group for C2 operations
 	protected := router.Group("/api")
-	protected.Use(AuthMiddleware(jwtSecret))
-	protected.Use(api.AuditMiddleware()) // Add audit logging to all protected endpoints
+	protected.Use(api.AuthMiddlewareWithSession(jwtSecret))
 	{
 		// WebSocket endpoint
 		protected.GET("/ws", api.serveWs)
@@ -74,9 +74,6 @@ func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService
 		protected.POST("/upload/chunk", api.UploadChunk)
 		protected.POST("/upload/complete", api.UploadComplete)
 		protected.GET("/loot/:filename", api.DownloadLootFile)
-
-		// Audit log operations
-		protected.GET("/audit-logs", api.GetAuditLogs)
 	}
 
 	return router

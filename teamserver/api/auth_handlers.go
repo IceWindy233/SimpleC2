@@ -74,13 +74,28 @@ func (a *API) Login() gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"token": tokenString})
+		// Create session record
+		if a.SessionService != nil {
+			_, err := a.SessionService.CreateSession(req.Username, tokenString, c.ClientIP(), c.Request.UserAgent(), 24*time.Hour)
+			if err != nil {
+				logger.Warnf("Failed to create session for user %s: %v", req.Username, err)
+				// Continue anyway, session creation failure shouldn't block login
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"token": tokenString,
+			"expires_at": time.Now().Add(time.Hour * 24).Unix(),
+		})
 	}
 }
 
-// AuthMiddleware creates a middleware handler for JWT validation.
-func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
+// AuthMiddlewareWithSession creates a middleware handler for JWT and session validation.
+func (a *API) AuthMiddlewareWithSession(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Record request start time for duration calculation in audit log
+		c.Set("requestStartTime", time.Now())
+
 		var tokenString string
 
 		// For WebSockets, the token is passed as a query parameter
@@ -118,12 +133,39 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
+		// Validate session
+		if a.SessionService != nil {
+			_, valid := a.SessionService.ValidateSession(tokenString)
+			if !valid {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Session expired or invalid"})
+				return
+			}
+		}
+
 		// Store the token claims in the context for other middleware
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
 			c.Set("userClaims", claims)
 			c.Set("username", claims["sub"])
+			c.Set("token", tokenString)
 		}
 
 		c.Next()
+	}
+}
+
+// Logout handles user logout and session invalidation.
+func (a *API) Logout() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		username, _ := c.Get("username")
+		token, _ := c.Get("token")
+
+			// Invalidate session
+		if a.SessionService != nil && token != nil {
+			if err := a.SessionService.InvalidateSession(token.(string)); err != nil {
+				logger.Warnf("Failed to invalidate session for user %s: %v", username, err)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
 	}
 }

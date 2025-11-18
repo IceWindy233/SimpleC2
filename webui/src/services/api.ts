@@ -122,3 +122,4 @@ export const deleteListener = async (name: string) => {
 export const deleteBeacon = async (beaconId: string) => {
   await api.delete(`/beacons/${beaconId}`);
 };
+

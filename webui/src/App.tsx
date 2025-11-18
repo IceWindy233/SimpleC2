@@ -32,10 +32,14 @@ function App() {
         <aside className="p-3 bg-dark border-end" style={{ width: '280px' }}>
           <ul className="nav nav-pills flex-column">
             <li className="nav-item">
-              <Link to="/" className="nav-link text-white">Beacons</Link>
+              <Link to="/" className="nav-link text-white">
+                <i className="bi bi-activity me-2"></i>Beacons
+              </Link>
             </li>
             <li className="nav-item">
-              <Link to="/listeners" className="nav-link text-white">Listeners</Link>
+              <Link to="/listeners" className="nav-link text-white">
+                <i className="bi bi-wifi me-2"></i>Listeners
+              </Link>
             </li>
           </ul>
         </aside>

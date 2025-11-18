@@ -32,6 +32,14 @@ type DataStore interface {
 	GetListener(name string) (*Listener, error)
 	CreateListener(listener *Listener) error
 	DeleteListener(name string) error
+
+	// Session methods
+	CreateSession(session *Session) error
+	GetSession(tokenHash string) (*Session, error)
+	UpdateSession(session *Session) error
+	DeleteSession(tokenHash string) error
+	GetActiveSessions() ([]Session, error)
+	DeleteExpiredSessions() (int64, error)
 }
 
 // GormStore is a generic implementation of DataStore using GORM.
@@ -65,7 +73,7 @@ func NewDataStore(cfg config.DatabaseConfig) (DataStore, error) {
 	}
 
 	logger.Info("Running database migrations...")
-	if err := db.AutoMigrate(&Beacon{}, &Task{}, &Listener{}); err != nil {
+	if err := db.AutoMigrate(&Beacon{}, &Task{}, &Listener{}, &Session{}); err != nil {
 		return nil, fmt.Errorf("failed to auto-migrate database: %w", err)
 	}
 

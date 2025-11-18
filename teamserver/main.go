@@ -7,6 +7,7 @@ import(
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"simplec2/pkg/bridge"
 	"simplec2/pkg/config"
@@ -72,7 +73,11 @@ func main() {
 	beaconService := service.NewBeaconService(store)
 	taskService := service.NewTaskService(store)
 	listenerService := service.NewListenerService(store)
-	auditService := service.NewAuditService(store)
+	sessionService := service.NewSessionService(store)
+
+	// Start session cleanup routine (run every 5 minutes)
+	sessionService.StartCleanupRoutine(5 * time.Minute)
+	logger.Info("Session cleanup routine started (runs every 5 minutes)")
 
 	// Create and run the WebSocket hub
 	hub := websocket.NewHub()
@@ -115,7 +120,7 @@ func main() {
 	}()
 
 	go func() {
-		router := api.NewRouter(&cfg, beaconService, taskService, listenerService, auditService, hub)
+		router := api.NewRouter(&cfg, beaconService, taskService, listenerService, sessionService, hub)
 		logger.Infof("HTTP API server listening on %s", cfg.API.Port)
 		if err := router.Run(cfg.API.Port); err != nil {
 			logger.Fatalf("Failed to run HTTP server: %v", err)
@@ -162,7 +167,8 @@ func generateDefaultConfig(path string) error {
 		Auth: config.AuthConfig{
 			APIKey:           "SimpleC2ListenerAPIKey_CHANGE_ME",
 			OperatorPassword: "SUPER_SECRET_PASSWORD_CHANGE_ME",
-			// 独立的 JWT 签名密钥 - 强烈建议从环境变量读取
+			// JWT 签名密钥 - 强烈建议从环境变量读取
+			// 用于签发操作员认证令牌，必须保持机密
 			JWTSecret: "CHANGE_ME_TO_RANDOM_256_BIT_KEY",
 		},
 		LootDir:    "loot",
