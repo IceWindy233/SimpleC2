@@ -16,10 +16,10 @@ func (a *API) GetTask(c *gin.Context) {
 	taskID := c.Param("task_id")
 	task, err := a.TaskService.GetTask(c.Request.Context(), taskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+		Respond(c, http.StatusNotFound, NewErrorResponse(http.StatusNotFound, "Task not found", err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": task})
+	Respond(c, http.StatusOK, NewSuccessResponse(task, nil))
 }
 
 // GetTasksForBeacon handles the API request to retrieve all tasks for a specific beacon.
@@ -28,10 +28,10 @@ func (a *API) GetTasksForBeacon(c *gin.Context) {
 
 	tasks, err := a.TaskService.GetTasksByBeaconID(c.Request.Context(), beaconID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		Respond(c, http.StatusNotFound, NewErrorResponse(http.StatusNotFound, "Tasks not found for beacon", err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": tasks})
+	Respond(c, http.StatusOK, NewSuccessResponse(tasks, nil))
 }
 
 // CreateTaskRequest defines the structure for the task creation API request body.
@@ -46,13 +46,13 @@ func (a *API) CreateTaskForBeacon(c *gin.Context) {
 
 	var req CreateTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		Respond(c, http.StatusBadRequest, NewErrorResponse(http.StatusBadRequest, "Invalid request body", err.Error()))
 		return
 	}
 
 	task, err := a.TaskService.CreateTask(c.Request.Context(), beaconID, req.Command, req.Arguments)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		Respond(c, http.StatusNotFound, NewErrorResponse(http.StatusNotFound, "Failed to create task", err.Error()))
 		return
 	}
 
@@ -74,7 +74,7 @@ func (a *API) CreateTaskForBeacon(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": task})
+	Respond(c, http.StatusCreated, NewSuccessResponse(task, nil))
 }
 
 // CancelTask handles the API request to cancel a queued task.
@@ -84,20 +84,20 @@ func (a *API) CancelTask(c *gin.Context) {
 	// Get task info before cancellation for event broadcasting
 	task, err := a.TaskService.GetTask(c.Request.Context(), taskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+		Respond(c, http.StatusNotFound, NewErrorResponse(http.StatusNotFound, "Task not found", err.Error()))
 		return
 	}
 
 	// Only allow cancellation of queued tasks
 	if task.Status != "queued" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Only queued tasks can be canceled"})
+		Respond(c, http.StatusBadRequest, NewErrorResponse(http.StatusBadRequest, "Only queued tasks can be canceled", ""))
 		return
 	}
 
 	// Update task status to canceled
 	task.Status = "canceled"
 	if err := a.TaskService.UpdateTask(c.Request.Context(), task); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel task"})
+		Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to cancel task", err.Error()))
 		return
 	}
 

@@ -12,9 +12,17 @@ import (
 
 // GetBeacons handles the API request to list all beacons.
 func (a *API) GetBeacons(c *gin.Context) {
-	// Parse query parameters
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	// Parse and validate query parameters
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil {
+		Respond(c, http.StatusBadRequest, NewErrorResponse(http.StatusBadRequest, "Invalid 'page' parameter", "must be an integer"))
+		return
+	}
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if err != nil {
+		Respond(c, http.StatusBadRequest, NewErrorResponse(http.StatusBadRequest, "Invalid 'limit' parameter", "must be an integer"))
+		return
+	}
 	search := c.Query("search")
 	status := c.Query("status")
 
@@ -27,19 +35,16 @@ func (a *API) GetBeacons(c *gin.Context) {
 
 	beacons, total, err := a.BeaconService.ListBeacons(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to retrieve beacons", err.Error()))
 		return
 	}
 
-	// TODO: Add pagination metadata to response
-	c.JSON(http.StatusOK, gin.H{
-		"data": beacons,
-		"meta": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	meta := gin.H{
+		"page":  page,
+		"limit": limit,
+		"total": total,
+	}
+	Respond(c, http.StatusOK, NewSuccessResponse(beacons, meta))
 }
 
 // GetBeacon handles the API request to retrieve a single beacon by its ID.
@@ -47,10 +52,10 @@ func (a *API) GetBeacon(c *gin.Context) {
 	beaconID := c.Param("beacon_id")
 	beacon, err := a.BeaconService.GetBeacon(c.Request.Context(), beaconID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Beacon not found"})
+		Respond(c, http.StatusNotFound, NewErrorResponse(http.StatusNotFound, "Beacon not found", err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": beacon})
+	Respond(c, http.StatusOK, NewSuccessResponse(beacon, nil))
 }
 
 // DeleteBeacon handles the API request to soft delete a beacon and task it to exit.
@@ -60,13 +65,13 @@ func (a *API) DeleteBeacon(c *gin.Context) {
 	// Get beacon info before deletion for event broadcasting
 	beacon, err := a.BeaconService.GetBeacon(c.Request.Context(), beaconID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Beacon not found"})
+		Respond(c, http.StatusNotFound, NewErrorResponse(http.StatusNotFound, "Beacon not found", err.Error()))
 		return
 	}
 
 	err = a.BeaconService.DeleteBeacon(c.Request.Context(), beaconID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to delete beacon", err.Error()))
 		return
 	}
 

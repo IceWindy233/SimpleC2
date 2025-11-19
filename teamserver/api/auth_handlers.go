@@ -35,7 +35,7 @@ func (a *API) Login() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req AuthRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			Respond(c, http.StatusBadRequest, NewErrorResponse(http.StatusBadRequest, "Invalid request body", err.Error()))
 			return
 		}
 
@@ -46,14 +46,14 @@ func (a *API) Login() gin.HandlerFunc {
 		if isHashed {
 			// 存储的是哈希，使用 bcrypt 比较
 			if err := verifyPassword(req.Password, storedPassword); err != nil {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+				Respond(c, http.StatusUnauthorized, NewErrorResponse(http.StatusUnauthorized, "Invalid credentials", ""))
 				return
 			}
 		} else {
 			// 存储的是明文，直接比较（不安全）
 			logger.Warn("The operator password is in plaintext. Please use the -hash-password flag to generate a hash and update your config file for better security.")
 			if req.Password != storedPassword {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+				Respond(c, http.StatusUnauthorized, NewErrorResponse(http.StatusUnauthorized, "Invalid credentials", ""))
 				return
 			}
 		}
@@ -71,7 +71,7 @@ func (a *API) Login() gin.HandlerFunc {
 		// 使用独立的 JWT 密钥签名
 		tokenString, err := token.SignedString([]byte(jwtSecret))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create token"})
+			Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to create token", err.Error()))
 			return
 		}
 
@@ -84,10 +84,10 @@ func (a *API) Login() gin.HandlerFunc {
 			}
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"token": tokenString,
+		Respond(c, http.StatusOK, NewSuccessResponse(gin.H{
+			"token":      tokenString,
 			"expires_at": time.Now().Add(time.Hour * 24).Unix(),
-		})
+		}, nil))
 	}
 }
 
@@ -104,19 +104,22 @@ func (a *API) AuthMiddlewareWithSession(jwtSecret string) gin.HandlerFunc {
 		if c.Request.URL.Path == "/api/ws" {
 			tokenString = c.Query("token")
 			if tokenString == "" {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "WebSocket token is missing"})
+				Respond(c, http.StatusUnauthorized, NewErrorResponse(http.StatusUnauthorized, "WebSocket token is missing", ""))
+				c.Abort()
 				return
 			}
 		} else {
 			// For standard HTTP requests, get the token from the header.
 			authHeader := c.GetHeader("Authorization")
 			if authHeader == "" {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is missing"})
+				Respond(c, http.StatusUnauthorized, NewErrorResponse(http.StatusUnauthorized, "Authorization header is missing", ""))
+				c.Abort()
 				return
 			}
 			parts := strings.Split(authHeader, " ")
 			if len(parts) != 2 || parts[0] != "Bearer" {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is invalid"})
+				Respond(c, http.StatusUnauthorized, NewErrorResponse(http.StatusUnauthorized, "Authorization header is invalid", ""))
+				c.Abort()
 				return
 			}
 			tokenString = parts[1]
@@ -130,7 +133,8 @@ func (a *API) AuthMiddlewareWithSession(jwtSecret string) gin.HandlerFunc {
 		})
 
 		if err != nil || !token.Valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			Respond(c, http.StatusUnauthorized, NewErrorResponse(http.StatusUnauthorized, "Invalid token", err.Error()))
+			c.Abort()
 			return
 		}
 
@@ -138,7 +142,8 @@ func (a *API) AuthMiddlewareWithSession(jwtSecret string) gin.HandlerFunc {
 		if a.SessionService != nil {
 			_, valid := a.SessionService.ValidateSession(tokenString)
 			if !valid {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Session expired or invalid"})
+				Respond(c, http.StatusUnauthorized, NewErrorResponse(http.StatusUnauthorized, "Session expired or invalid", ""))
+				c.Abort()
 				return
 			}
 		}
@@ -189,6 +194,6 @@ func (a *API) Logout() gin.HandlerFunc {
 			}
 		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
+		Respond(c, http.StatusOK, NewSuccessResponse(gin.H{"message": "Logged out successfully"}, nil))
 	}
 }

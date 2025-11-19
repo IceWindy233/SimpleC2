@@ -2,17 +2,25 @@
 
 export interface Beacon {
   ID: number;
+  CreatedAt: string;
+  UpdatedAt: string;
+  DeletedAt: string | null;
   BeaconID: string;
-  OS: string;
-  Arch: string;
-  Hostname: string;
-  Username: string;
-  InternalIP: string;
-  LastSeen: string;
+  SessionKey: string | null;
+  Listener: string;
+  RemoteAddr: string;
   Status: string;
   FirstSeen: string;
-  Listener: string;
+  LastSeen: string;
   Sleep: number;
+  OS: string;
+  Arch: string;
+  Username: string;
+  Hostname: string;
+  InternalIP: string;
+  ProcessName: string;
+  PID: number;
+  IsHighIntegrity: boolean;
 }
 
 export interface Task {

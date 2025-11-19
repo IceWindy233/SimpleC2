@@ -45,37 +45,40 @@ const BeaconDetailPage = () => {
   }, [beaconId]);
 
   // WebSocket message handling for real-time updates
-  useEffect(() => {
-    if (lastMessage) {
-      try {
-        const event = JSON.parse(lastMessage.data);
-        
-        // Check if the event is relevant for this beacon
-        const eventBeaconId = event.payload.beacon_id || event.payload.BeaconID;
-        if (eventBeaconId !== beaconId) {
-          return; // Ignore events for other beacons
-        }
-
-        if (event.type === 'TASK_OUTPUT') {
-          const updatedTask = event.payload as Task;
-          setTasks(prevTasks =>
-            prevTasks.map(t => (t.TaskID === updatedTask.TaskID ? updatedTask : t))
-          );
-        
-        } else if (event.type === 'BEACON_CHECKIN') {
-          const { last_seen } = event.payload;
-          setBeacon(prevBeacon => prevBeacon ? { ...prevBeacon, LastSeen: last_seen } : null);
-
-        } else if (event.type === 'BEACON_METADATA_UPDATED') {
-          const updatedBeacon = event.payload as Beacon;
-          setBeacon(updatedBeacon);
-        }
-      } catch (e) {
-        console.error("Failed to parse WebSocket message", e);
+    useEffect(() => {
+      if (lastMessage) {
+        const messages = lastMessage.data.split('\n').filter((msg: string) => msg.trim() !== '');
+        messages.forEach((message: string) => {
+          try {
+            const event = JSON.parse(message);
+  
+            // Check if the event is relevant for this beacon
+            const eventBeaconId = event.payload.beacon_id || event.payload.BeaconID;
+            if (eventBeaconId !== beaconId) {
+              return; // Ignore events for other beacons
+            }
+  
+            if (event.type === 'TASK_OUTPUT') {
+              const updatedTask = event.payload as Task;
+              setTasks(prevTasks =>
+                prevTasks.map(t => (t.TaskID === updatedTask.TaskID ? updatedTask : t))
+              );
+  
+            } else if (event.type === 'BEACON_CHECKIN') {
+              const { last_seen } = event.payload;
+              setBeacon(prevBeacon => prevBeacon ? { ...prevBeacon, LastSeen: last_seen } : null);
+  
+            } else if (event.type === 'BEACON_METADATA_UPDATED') {
+              console.log('BEACON_METADATA_UPDATED event received:', event.payload);
+              const updatedBeacon = event.payload as Beacon;
+              setBeacon(updatedBeacon);
+            }
+          } catch (e) {
+            console.error("Failed to parse WebSocket message", e);
+          }
+        });
       }
-    }
-  }, [lastMessage, beaconId]);
-
+    }, [lastMessage, beaconId]);
   const handleNewTask = (newTask: Task) => {
     // Add the new task with a "dispatched" status.
     // The actual result will come in via WebSocket.
@@ -144,12 +147,16 @@ const BeaconDetailPage = () => {
               <p><strong>Hostname:</strong> {beacon.Hostname}</p>
               <p><strong>Username:</strong> {beacon.Username}</p>
               <p><strong>Operating System:</strong> {beacon.OS} ({beacon.Arch})</p>
+              <p><strong>Process Name:</strong> {beacon.ProcessName}</p>
+              <p><strong>PID:</strong> {beacon.PID}</p>
+              <p><strong>High Integrity:</strong> {beacon.IsHighIntegrity ? 'Yes' : 'No'}</p>
             </div>
             <div className="col-md-6">
               <p><strong>Last Seen:</strong> {new Date(beacon.LastSeen).toLocaleString()}</p>
               <p><strong>First Seen:</strong> {new Date(beacon.FirstSeen).toLocaleString()}</p>
               <p><strong>Listener:</strong> {beacon.Listener}</p>
               <p><strong>Sleep:</strong> {beacon.Sleep} seconds</p>
+              <p><strong>Remote Address:</strong> {beacon.RemoteAddr}</p>
             </div>
           </div>
         </div>

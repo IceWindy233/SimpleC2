@@ -80,7 +80,7 @@ make generate-keys
 项目包含一个 `Makefile` 以简化构建流程。
 
 - `make generate-keys`: 生成所有必需的密钥和证书。
-- `make cp-certs`: 将`teamserver`和`listener`所需要的密钥和证书复制到在 `certs/teamserver` 和 `certs/listener` 目录中。
+- `make cp-certs`: 将`teamserver`和`listener`所需要的密钥和证书复制到在 `bin/teamserver` 和 `bin/listener_http` 目录中。
 - `make` 或 `make all`: 构建所有组件 (`teamserver`, `listener_http`, 所有 `beacons`)。
 - `make http`: 构建 HTTP listener 及其对应的 beacons。
 - `make teamserver`: 仅构建 TeamServer。
@@ -115,7 +115,7 @@ TeamServer 是 C2 的核心服务器。
 - **如何运行**:
   
   1.  **构建**: `make teamserver`
-  2.  **复制证书**: 将 `certs/teamserver/s` 目录下所有文件**手动复制**到 `bin/teamserver/certs/` 目录下。
+  2.  **复制证书**: `make cp-certs`
   3.  **运行**: 进入 `bin/teamserver/` 目录，然后执行：
   
   ```bash
@@ -129,8 +129,8 @@ Listener 作为 Beacon 和 TeamServer 之间的桥梁。
 - **配置**: Listener 通过 `listener.yaml` 文件进行配置。如果找不到该文件，将自动生成一个默认文件。
   
 - **如何运行**:
-  1.  **构建**: `make listener-http`
-  2.  **复制证书**: 将 `certs/listener/` 目录**手动复制**到 `bin/listener_http/certs/` 目录下。
+  1.  **构建**: `make http`
+  2.  **复制证书**: `make cp-certs`
   3.  **运行**: 进入 `bin/listener_http/` 目录，然后执行：
   ```bash
   ./listener_http -config listener.yaml

@@ -9,6 +9,15 @@ import (
 	"simplec2/teamserver/websocket"
 )
 
+// serveWs godoc
+// @Summary Establish WebSocket connection
+// @Description Establishes a WebSocket connection for real-time event updates.
+// @Tags websocket
+// @Produce  json
+// @Param token query string true "JWT token for authentication"
+// @Success 101 "Switching Protocols"
+// @Failure 401 {object} gin.H{"error": string} "Unauthorized"
+// @Router /ws [get]
 // serveWs handles websocket requests from the peer.
 // It acts as an adapter between the Gin context and the standard http.ResponseWriter and http.Request
 // expected by the websocket handler.

@@ -20,18 +20,6 @@ export const setBaseURL = (url: string): void => {
   api.defaults.baseURL = `${url}/api`;
 };
 
-// 初始化API配置
-const initializeAPI = () => {
-  const baseURL = getBaseURL();
-  setBaseURL(baseURL);
-
-  // 从localStorage初始化token
-  const token = localStorage.getItem('token');
-  if (token) {
-    setAuthToken(token);
-  }
-};
-
 // 设置认证token
 export const setAuthToken = (token: string | null) => {
   if (token) {
@@ -41,17 +29,32 @@ export const setAuthToken = (token: string | null) => {
   }
 };
 
-// 初始化API
-initializeAPI();
+// Initial setup when the module loads
+const initialBaseURL = getBaseURL();
+setBaseURL(initialBaseURL);
+
+const initialToken = localStorage.getItem('token');
+if (initialToken) {
+  setAuthToken(initialToken);
+}
+
 
 export const getBeacons = async () => {
   const response = await api.get('/beacons');
-  return response.data.data;
+  if (response.data.success) {
+    return response.data.data;
+  } else {
+    throw new Error(response.data.error.message);
+  }
 };
 
 export const getBeacon = async (beaconId: string) => {
   const response = await api.get(`/beacons/${beaconId}`);
-  return response.data.data;
+  if (response.data.success) {
+    return response.data.data;
+  } else {
+    throw new Error(response.data.error.message);
+  }
 };
 
 export const createTask = async (beaconId: string, command: string, args: string) => {
@@ -59,24 +62,40 @@ export const createTask = async (beaconId: string, command: string, args: string
     command: command,
     arguments: args,
   });
-  return response.data.data;
+  if (response.data.success) {
+    return response.data.data;
+  } else {
+    throw new Error(response.data.error.message);
+  }
 };
 
 export const getTask = async (taskId: string) => {
   const response = await api.get(`/tasks/${taskId}`);
-  return response.data.data;
+  if (response.data.success) {
+    return response.data.data;
+  } else {
+    throw new Error(response.data.error.message);
+  }
 };
 
 export const getTasksForBeacon = async (beaconId: string) => {
   const response = await api.get(`/beacons/${beaconId}/tasks`);
-  return response.data.data;
+  if (response.data.success) {
+    return response.data.data;
+  } else {
+    throw new Error(response.data.error.message);
+  }
 };
 
 // --- Chunked File Upload ---
 
 export const uploadInit = async (filename: string) => {
   const response = await api.post('/upload/init', { filename });
-  return response.data;
+  if (response.data.success) {
+    return response.data.data;
+  } else {
+    throw new Error(response.data.error.message || 'Failed to initialize upload');
+  }
 };
 
 export const uploadChunk = async (uploadId: string, chunkNumber: number, chunk: Blob) => {
@@ -87,12 +106,20 @@ export const uploadChunk = async (uploadId: string, chunkNumber: number, chunk: 
       'X-Chunk-Number': chunkNumber.toString(),
     },
   });
-  return response.data;
+  if (response.status === 200) {
+    return;
+  } else {
+    throw new Error(response.data.error.message || 'Failed to upload chunk');
+  }
 };
 
 export const uploadComplete = async (uploadId: string, filename: string) => {
   const response = await api.post('/upload/complete', { upload_id: uploadId, filename });
-  return response.data;
+  if (response.data.success) {
+    return response.data.data;
+  } else {
+    throw new Error(response.data.error.message || 'Failed to complete upload');
+  }
 };
 
 
@@ -106,20 +133,38 @@ export const downloadLootFile = async (filename: string) => {
 // Listener Management
 export const getListeners = async () => {
   const response = await api.get('/listeners');
-  return response.data.data;
+  if (response.data.success) {
+    return response.data.data;
+  } else {
+    throw new Error(response.data.error.message);
+  }
 };
 
 export const createListener = async (name: string, type: string, config: string) => {
   const response = await api.post('/listeners', { name, type, config });
-  return response.data.data;
+  if (response.data.success) {
+    return response.data.data;
+  } else {
+    throw new Error(response.data.error.message);
+  }
 };
 
 export const deleteListener = async (name: string) => {
-  await api.delete(`/listeners/${name}`);
+  const response = await api.delete(`/listeners/${name}`);
+  if (response.status === 204) {
+    return;
+  } else {
+    throw new Error(response.data.error.message);
+  }
 };
 
 // Beacon Management
 export const deleteBeacon = async (beaconId: string) => {
-  await api.delete(`/beacons/${beaconId}`);
+  const response = await api.delete(`/beacons/${beaconId}`);
+  if (response.status === 204) {
+    return;
+  } else {
+    throw new Error(response.data.error.message);
+  }
 };
 

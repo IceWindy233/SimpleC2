@@ -4,31 +4,38 @@ import (
 	"encoding/json"
 	"net/http"
 	"simplec2/pkg/logger"
-	"simplec2/teamserver/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-// --- Listener Handlers ---
-
+// CreateListenerRequest defines the structure for the listener creation API request body.
 type CreateListenerRequest struct {
 	Name   string `json:"name" binding:"required"`
 	Type   string `json:"type" binding:"required"`
 	Config string `json:"config"`
 }
 
+// CreateListener godoc
+// @Summary Create a new listener
+// @Description Creates and starts a new listener with the specified configuration.
+// @Tags listeners
+// @Accept  json
+// @Produce  json
+// @Param listener body CreateListenerRequest true "Listener creation request"
+// @Success 201 {object} gin.H{"data": data.Listener}
+// @Failure 400 {object} gin.H{"error": string} "Invalid request body"
+// @Failure 500 {object} gin.H{"error": string} "Internal server error"
+// @Router /listeners [post]
 func (a *API) CreateListener(c *gin.Context) {
 	var req CreateListenerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		Respond(c, http.StatusBadRequest, NewErrorResponse(http.StatusBadRequest, "Invalid request body", err.Error()))
 		return
 	}
 
-	var _ service.ListenerService // 强制使用service包
-
 	listener, err := a.ListenerService.CreateListener(c.Request.Context(), req.Name, req.Type, req.Config)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to create listener", err.Error()))
 		return
 	}
 
@@ -50,31 +57,49 @@ func (a *API) CreateListener(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": listener})
+	Respond(c, http.StatusCreated, NewSuccessResponse(listener, nil))
 }
 
+// GetListeners godoc
+// @Summary Get all listeners
+// @Description Retrieves a list of all active listeners.
+// @Tags listeners
+// @Produce  json
+// @Success 200 {object} StandardResponse{data=[]data.Listener}
+// @Failure 500 {object} StandardResponse
+// @Router /listeners [get]
 func (a *API) GetListeners(c *gin.Context) {
 	listeners, err := a.ListenerService.ListListeners(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to retrieve listeners", err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": listeners})
+	Respond(c, http.StatusOK, NewSuccessResponse(listeners, nil))
 }
 
+// DeleteListener godoc
+// @Summary Delete a listener
+// @Description Stops and deletes a listener by its name.
+// @Tags listeners
+// @Produce  json
+// @Param name path string true "The name of the listener to delete"
+// @Success 204 "No Content"
+// @Failure 404 {object} StandardResponse
+// @Failure 500 {object} StandardResponse
+// @Router /listeners/{name} [delete]
 func (a *API) DeleteListener(c *gin.Context) {
 	listenerName := c.Param("name")
 
 	// Get listener info before deletion for event broadcasting
 	listener, err := a.ListenerService.GetListener(c.Request.Context(), listenerName)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Listener not found"})
+		Respond(c, http.StatusNotFound, NewErrorResponse(http.StatusNotFound, "Listener not found", err.Error()))
 		return
 	}
 
 	err = a.ListenerService.DeleteListener(c.Request.Context(), listenerName)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to delete listener", err.Error()))
 		return
 	}
 
