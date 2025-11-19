@@ -1,9 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"simplec2/pkg/logger"
 	"simplec2/teamserver/service"
 	"strconv"
 )
@@ -55,10 +57,35 @@ func (a *API) GetBeacon(c *gin.Context) {
 func (a *API) DeleteBeacon(c *gin.Context) {
 	beaconID := c.Param("beacon_id")
 
-	err := a.BeaconService.DeleteBeacon(c.Request.Context(), beaconID)
+	// Get beacon info before deletion for event broadcasting
+	beacon, err := a.BeaconService.GetBeacon(c.Request.Context(), beaconID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Beacon not found"})
+		return
+	}
+
+	err = a.BeaconService.DeleteBeacon(c.Request.Context(), beaconID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Broadcast BEACON_DELETED event via WebSocket
+	event := struct {
+		Type    string      `json:"type"`
+		Payload interface{} `json:"payload"`
+	}{
+		Type:    "BEACON_DELETED",
+		Payload: beacon,
+	}
+	eventBytes, err := json.Marshal(event)
+	if err != nil {
+		logger.Errorf("Error marshalling BEACON_DELETED event: %v", err)
+	} else {
+		if a.Hub != nil {
+			a.Hub.Broadcast(eventBytes)
+			logger.Debugf("Broadcasted BEACON_DELETED event for %s", beaconID)
+		}
 	}
 
 	c.Status(http.StatusNoContent)

@@ -168,6 +168,28 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 						continue
 					}
 
+					// Broadcast FILE_DOWNLOAD_STARTED event
+					startEvent := struct {
+						Type    string      `json:"type"`
+						Payload interface{} `json:"payload"`
+					}{
+						Type: "FILE_DOWNLOAD_STARTED",
+						Payload: map[string]interface{}{
+							"task_id":     dbTask.TaskID,
+							"beacon_id":   dbTask.BeaconID,
+							"source":      sourcePath,
+							"destination": downloadArgs.Destination,
+							"file_size":   fileInfo.Size(),
+						},
+					}
+					startEventBytes, err := json.Marshal(startEvent)
+					if err != nil {
+						logger.Errorf("Error marshalling FILE_DOWNLOAD_STARTED event: %v", err)
+					} else {
+						s.Hub.Broadcast(startEventBytes)
+						logger.Debugf("Broadcasted FILE_DOWNLOAD_STARTED event for %s", sourcePath)
+					}
+
 					// Prepare arguments for the beacon to initiate chunked download
 					beaconArgs := struct {
 						Source      string `json:"source"`
@@ -218,6 +240,22 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 		// Update task status to dispatched
 		dbTask.Status = "dispatched"
 		s.Store.UpdateTask(&dbTask)
+
+		// Broadcast TASK_DISPATCHED event
+		dispatchedEvent := struct {
+			Type    string      `json:"type"`
+			Payload interface{} `json:"payload"`
+		}{
+			Type:    "TASK_DISPATCHED",
+			Payload: dbTask,
+		}
+		dispatchedEventBytes, err := json.Marshal(dispatchedEvent)
+		if err != nil {
+			logger.Errorf("Error marshalling TASK_DISPATCHED event: %v", err)
+		} else {
+			s.Hub.Broadcast(dispatchedEventBytes)
+			logger.Debugf("Broadcasted TASK_DISPATCHED event for %s", dbTask.TaskID)
+		}
 	}
 
 	return &bridge.CheckInBeaconResponse{

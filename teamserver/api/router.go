@@ -63,6 +63,7 @@ func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService
 		protected.POST("/beacons/:beacon_id/tasks", api.CreateTaskForBeacon)
 		protected.GET("/beacons/:beacon_id/tasks", api.GetTasksForBeacon)
 		protected.GET("/tasks/:task_id", api.GetTask)
+		protected.DELETE("/tasks/:task_id", api.CancelTask)
 
 		// Listener management
 		protected.GET("/listeners", api.GetListeners)

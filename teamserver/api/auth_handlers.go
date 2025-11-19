@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -147,6 +148,28 @@ func (a *API) AuthMiddlewareWithSession(jwtSecret string) gin.HandlerFunc {
 			c.Set("userClaims", claims)
 			c.Set("username", claims["sub"])
 			c.Set("token", tokenString)
+
+			// Broadcast CLIENT_AUTHENTICATED event via WebSocket
+			event := struct {
+				Type    string      `json:"type"`
+				Payload interface{} `json:"payload"`
+			}{
+				Type: "CLIENT_AUTHENTICATED",
+				Payload: map[string]interface{}{
+					"username":  claims["sub"],
+					"timestamp": time.Now(),
+					"path":      c.Request.URL.Path,
+				},
+			}
+			eventBytes, err := json.Marshal(event)
+			if err != nil {
+				logger.Errorf("Error marshalling CLIENT_AUTHENTICATED event: %v", err)
+			} else {
+				if a.Hub != nil {
+					a.Hub.Broadcast(eventBytes)
+					logger.Debugf("Broadcasted CLIENT_AUTHENTICATED event for user %s", claims["sub"])
+				}
+			}
 		}
 
 		c.Next()

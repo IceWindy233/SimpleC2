@@ -19,6 +19,9 @@ type TaskService interface {
 
 	// CreateTask creates a new task for a beacon.
 	CreateTask(ctx context.Context, beaconID string, command string, arguments string) (*data.Task, error)
+
+	// UpdateTask updates a task.
+	UpdateTask(ctx context.Context, task *data.Task) error
 }
 
 // taskService implements the TaskService interface.
@@ -76,4 +79,12 @@ func (s *taskService) CreateTask(ctx context.Context, beaconID string, command s
 	}
 
 	return task, nil
+}
+
+// UpdateTask updates a task.
+func (s *taskService) UpdateTask(ctx context.Context, task *data.Task) error {
+	if err := s.store.UpdateTask(task); err != nil {
+		return fmt.Errorf("failed to update task: %w", err)
+	}
+	return nil
 }

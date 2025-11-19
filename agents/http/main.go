@@ -37,6 +37,18 @@ var (
 	jitter        = 2 * time.Second
 )
 
+// --- Silent Mode Support ---
+// In production C2 beacons, we should be silent (no stdout output)
+// Set SilentMode = true to disable all log output
+const SilentMode = true
+
+func init() {
+	if SilentMode {
+		// Disable all log output by setting output to io.Discard
+		log.SetOutput(io.Discard)
+	}
+}
+
 // --- Structs for JSON marshaling ---
 
 type BeaconMetadata struct {

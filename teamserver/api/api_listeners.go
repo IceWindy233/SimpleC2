@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
+	"simplec2/pkg/logger"
 	"simplec2/teamserver/service"
 
 	"github.com/gin-gonic/gin"
@@ -30,6 +32,24 @@ func (a *API) CreateListener(c *gin.Context) {
 		return
 	}
 
+	// Broadcast LISTENER_STARTED event via WebSocket
+	event := struct {
+		Type    string      `json:"type"`
+		Payload interface{} `json:"payload"`
+	}{
+		Type:    "LISTENER_STARTED",
+		Payload: listener,
+	}
+	eventBytes, err := json.Marshal(event)
+	if err != nil {
+		logger.Errorf("Error marshalling LISTENER_STARTED event: %v", err)
+	} else {
+		if a.Hub != nil {
+			a.Hub.Broadcast(eventBytes)
+			logger.Debugf("Broadcasted LISTENER_STARTED event for %s", req.Name)
+		}
+	}
+
 	c.JSON(http.StatusCreated, gin.H{"data": listener})
 }
 
@@ -44,10 +64,37 @@ func (a *API) GetListeners(c *gin.Context) {
 
 func (a *API) DeleteListener(c *gin.Context) {
 	listenerName := c.Param("name")
-	err := a.ListenerService.DeleteListener(c.Request.Context(), listenerName)
+
+	// Get listener info before deletion for event broadcasting
+	listener, err := a.ListenerService.GetListener(c.Request.Context(), listenerName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Listener not found"})
+		return
+	}
+
+	err = a.ListenerService.DeleteListener(c.Request.Context(), listenerName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Broadcast LISTENER_STOPPED event via WebSocket
+	event := struct {
+		Type    string      `json:"type"`
+		Payload interface{} `json:"payload"`
+	}{
+		Type:    "LISTENER_STOPPED",
+		Payload: listener,
+	}
+	eventBytes, err := json.Marshal(event)
+	if err != nil {
+		logger.Errorf("Error marshalling LISTENER_STOPPED event: %v", err)
+	} else {
+		if a.Hub != nil {
+			a.Hub.Broadcast(eventBytes)
+			logger.Debugf("Broadcasted LISTENER_STOPPED event for %s", listenerName)
+		}
+	}
+
 	c.Status(http.StatusNoContent)
 }

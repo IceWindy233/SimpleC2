@@ -34,12 +34,186 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 		if err := os.WriteFile(lootFilePath, in.Output, 0644); err != nil {
 			logger.Errorf("Error saving uploaded file for task %s: %v", task.TaskID, err)
 			outputMessage = fmt.Sprintf("Failed to save uploaded file: %v", err)
+
+			// Update task status to failed
+			task.Status = "failed"
+			task.Output = outputMessage
+			if err := s.Store.UpdateTask(task); err != nil {
+				logger.Errorf("Error updating task status to failed: %v", err)
+			}
+
+			// Broadcast TASK_FAILED event
+			failedEvent := struct {
+				Type    string      `json:"type"`
+				Payload interface{} `json:"payload"`
+			}{
+				Type: "TASK_FAILED",
+				Payload: map[string]interface{}{
+					"task_id":   task.TaskID,
+					"beacon_id": task.BeaconID,
+					"command":   task.Command,
+					"reason":    outputMessage,
+				},
+			}
+			failedEventBytes, err := json.Marshal(failedEvent)
+			if err != nil {
+				logger.Errorf("Error marshalling TASK_FAILED event: %v", err)
+			} else {
+				s.Hub.Broadcast(failedEventBytes)
+				logger.Debugf("Broadcasted TASK_FAILED event for task %s", task.TaskID)
+			}
+
+			return &bridge.PushBeaconOutputResponse{}, nil
 		} else {
 			logger.Infof("Saved uploaded file to %s", lootFilePath)
 			outputMessage = lootFileName
 		}
 	} else if task.Command == "exit" {
 		outputMessage = "Beacon received exit command."
+
+		// Broadcast BEACON_EXITED event
+		beacon, err := s.Store.GetBeacon(task.BeaconID)
+		if err != nil {
+			logger.Errorf("Error getting beacon %s for exit event: %v", task.BeaconID, err)
+		} else {
+			exitedEvent := struct {
+				Type    string      `json:"type"`
+				Payload interface{} `json:"payload"`
+			}{
+				Type:    "BEACON_EXITED",
+				Payload: beacon,
+			}
+			exitedEventBytes, err := json.Marshal(exitedEvent)
+			if err != nil {
+				logger.Errorf("Error marshalling BEACON_EXITED event: %v", err)
+			} else {
+				s.Hub.Broadcast(exitedEventBytes)
+				logger.Infof("Broadcasted BEACON_EXITED event for %s", beacon.BeaconID)
+			}
+		}
+	} else if task.Command == "upload" {
+		// For upload command, set output to the saved filename
+		originalPath := filepath.Base(task.Arguments)
+		lootFileName := fmt.Sprintf("%s_%s", task.TaskID, originalPath)
+		outputMessage = lootFileName
+
+		// Broadcast FILE_UPLOAD_COMPLETED event
+		fileEvent := struct {
+			Type    string      `json:"type"`
+			Payload interface{} `json:"payload"`
+		}{
+			Type: "FILE_UPLOAD_COMPLETED",
+			Payload: map[string]interface{}{
+				"task_id":     task.TaskID,
+				"beacon_id":   task.BeaconID,
+				"filename":    lootFileName,
+				"original_path": task.Arguments,
+			},
+		}
+		fileEventBytes, err := json.Marshal(fileEvent)
+		if err != nil {
+			logger.Errorf("Error marshalling FILE_UPLOAD_COMPLETED event: %v", err)
+		} else {
+			s.Hub.Broadcast(fileEventBytes)
+			logger.Debugf("Broadcasted FILE_UPLOAD_COMPLETED event for %s", lootFileName)
+		}
+	} else if task.Command == "download" {
+		// For download command, get the completion message
+		if utf8.Valid(in.Output) {
+			outputMessage = string(in.Output)
+		} else {
+			outputMessage = strings.ToValidUTF8(string(in.Output), "\uFFFD")
+		}
+
+		// Broadcast FILE_DOWNLOAD_COMPLETED event
+		var downloadResult map[string]interface{}
+		if err := json.Unmarshal(in.Output, &downloadResult); err == nil {
+			completedEvent := struct {
+				Type    string      `json:"type"`
+				Payload interface{} `json:"payload"`
+			}{
+				Type: "FILE_DOWNLOAD_COMPLETED",
+				Payload: map[string]interface{}{
+					"task_id":      task.TaskID,
+					"beacon_id":    task.BeaconID,
+					"destination":  downloadResult["destination"],
+					"file_size":    downloadResult["file_size"],
+					"success":      downloadResult["success"],
+				},
+			}
+			completedEventBytes, err := json.Marshal(completedEvent)
+			if err != nil {
+				logger.Errorf("Error marshalling FILE_DOWNLOAD_COMPLETED event: %v", err)
+			} else {
+				s.Hub.Broadcast(completedEventBytes)
+				logger.Debugf("Broadcasted FILE_DOWNLOAD_COMPLETED event for %s", task.TaskID)
+			}
+
+			// Check if download was not successful
+			if success, ok := downloadResult["success"].(bool); ok && !success {
+				// Update task status to failed
+				task.Status = "failed"
+				task.Output = outputMessage
+				if err := s.Store.UpdateTask(task); err != nil {
+					logger.Errorf("Error updating task status to failed: %v", err)
+				}
+
+				// Broadcast TASK_FAILED event
+				failedEvent := struct {
+					Type    string      `json:"type"`
+					Payload interface{} `json:"payload"`
+				}{
+					Type: "TASK_FAILED",
+					Payload: map[string]interface{}{
+						"task_id":   task.TaskID,
+						"beacon_id": task.BeaconID,
+						"command":   task.Command,
+						"reason":    outputMessage,
+					},
+				}
+				failedEventBytes, err := json.Marshal(failedEvent)
+				if err != nil {
+					logger.Errorf("Error marshalling TASK_FAILED event: %v", err)
+				} else {
+					s.Hub.Broadcast(failedEventBytes)
+					logger.Debugf("Broadcasted TASK_FAILED event for task %s", task.TaskID)
+				}
+			}
+		} else {
+			// Failed to parse download result
+			logger.Errorf("Failed to parse download result for task %s: %v", task.TaskID, err)
+			outputMessage = fmt.Sprintf("Failed to parse download result: %v", err)
+
+			// Update task status to failed
+			task.Status = "failed"
+			task.Output = outputMessage
+			if err := s.Store.UpdateTask(task); err != nil {
+				logger.Errorf("Error updating task status to failed: %v", err)
+			}
+
+			// Broadcast TASK_FAILED event
+			failedEvent := struct {
+				Type    string      `json:"type"`
+				Payload interface{} `json:"payload"`
+			}{
+				Type: "TASK_FAILED",
+				Payload: map[string]interface{}{
+					"task_id":   task.TaskID,
+					"beacon_id": task.BeaconID,
+					"command":   task.Command,
+					"reason":    outputMessage,
+				},
+			}
+			failedEventBytes, err := json.Marshal(failedEvent)
+			if err != nil {
+				logger.Errorf("Error marshalling TASK_FAILED event: %v", err)
+			} else {
+				s.Hub.Broadcast(failedEventBytes)
+				logger.Debugf("Broadcasted TASK_FAILED event for task %s", task.TaskID)
+			}
+
+			return &bridge.PushBeaconOutputResponse{}, nil
+		}
 	} else {
 		if utf8.Valid(in.Output) {
 			outputMessage = string(in.Output)
