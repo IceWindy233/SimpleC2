@@ -10,10 +10,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"golang.org/x/text/encoding/simplifiedchinese"
-	"golang.org/x/text/transform"
 	"simplec2/pkg/bridge"
 	"simplec2/pkg/logger"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
 
 func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutputRequest) (*bridge.PushBeaconOutputResponse, error) {
@@ -67,6 +68,27 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 		} else {
 			logger.Infof("Saved uploaded file to %s", lootFilePath)
 			outputMessage = lootFileName
+
+			// Broadcast FILE_UPLOAD_COMPLETED event
+			fileEvent := struct {
+				Type    string      `json:"type"`
+				Payload interface{} `json:"payload"`
+			}{
+				Type: "FILE_UPLOAD_COMPLETED",
+				Payload: map[string]interface{}{
+					"task_id":       task.TaskID,
+					"beacon_id":     task.BeaconID,
+					"filename":      lootFileName,
+					"original_path": task.Arguments,
+				},
+			}
+			fileEventBytes, err := json.Marshal(fileEvent)
+			if err != nil {
+				logger.Errorf("Error marshalling FILE_UPLOAD_COMPLETED event: %v", err)
+			} else {
+				s.Hub.Broadcast(fileEventBytes)
+				logger.Debugf("Broadcasted FILE_UPLOAD_COMPLETED event for %s", lootFileName)
+			}
 		}
 	} else if task.Command == "exit" {
 		outputMessage = "Beacon received exit command."
@@ -91,32 +113,6 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 				logger.Infof("Broadcasted BEACON_EXITED event for %s", beacon.BeaconID)
 			}
 		}
-	} else if task.Command == "upload" {
-		// For upload command, set output to the saved filename
-		originalPath := filepath.Base(task.Arguments)
-		lootFileName := fmt.Sprintf("%s_%s", task.TaskID, originalPath)
-		outputMessage = lootFileName
-
-		// Broadcast FILE_UPLOAD_COMPLETED event
-		fileEvent := struct {
-			Type    string      `json:"type"`
-			Payload interface{} `json:"payload"`
-		}{
-			Type: "FILE_UPLOAD_COMPLETED",
-			Payload: map[string]interface{}{
-				"task_id":     task.TaskID,
-				"beacon_id":   task.BeaconID,
-				"filename":    lootFileName,
-				"original_path": task.Arguments,
-			},
-		}
-		fileEventBytes, err := json.Marshal(fileEvent)
-		if err != nil {
-			logger.Errorf("Error marshalling FILE_UPLOAD_COMPLETED event: %v", err)
-		} else {
-			s.Hub.Broadcast(fileEventBytes)
-			logger.Debugf("Broadcasted FILE_UPLOAD_COMPLETED event for %s", lootFileName)
-		}
 	} else if task.Command == "download" {
 		// For download command, get the completion message
 		if utf8.Valid(in.Output) {
@@ -134,11 +130,11 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 			}{
 				Type: "FILE_DOWNLOAD_COMPLETED",
 				Payload: map[string]interface{}{
-					"task_id":      task.TaskID,
-					"beacon_id":    task.BeaconID,
-					"destination":  downloadResult["destination"],
-					"file_size":    downloadResult["file_size"],
-					"success":      downloadResult["success"],
+					"task_id":     task.TaskID,
+					"beacon_id":   task.BeaconID,
+					"destination": downloadResult["destination"],
+					"file_size":   downloadResult["file_size"],
+					"success":     downloadResult["success"],
 				},
 			}
 			completedEventBytes, err := json.Marshal(completedEvent)
@@ -237,7 +233,8 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 
 	// After updating the task, check for side effects
 	if task.Command == "sleep" {
-		if newSleep, err := strconv.Atoi(task.Arguments); err == nil {
+		logger.Infof("Processing side effects for sleep task %s. Arguments: '%s'", task.TaskID, task.Arguments)
+		if newSleep, err := strconv.Atoi(strings.TrimSpace(task.Arguments)); err == nil {
 			beacon, err := s.Store.GetBeacon(task.BeaconID)
 			if err != nil {
 				logger.Errorf("Error getting beacon %s for sleep update: %v", task.BeaconID, err)
@@ -246,6 +243,7 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 				if err := s.Store.UpdateBeacon(beacon); err != nil {
 					logger.Errorf("Error updating beacon %s sleep interval: %v", task.BeaconID, err)
 				} else {
+					logger.Infof("Successfully updated beacon %s sleep to %d", beacon.BeaconID, beacon.Sleep)
 					// Broadcast the beacon metadata update event
 					beaconUpdateEvent := struct {
 						Type    string      `json:"type"`
@@ -263,6 +261,8 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 					}
 				}
 			}
+		} else {
+			logger.Errorf("Failed to parse sleep argument '%s' as int: %v", task.Arguments, err)
 		}
 	}
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { getBeacons, deleteBeacon } from '../services/api';
 import { useWebSocket } from '../contexts/WebSocketContext';
@@ -16,6 +16,12 @@ const DashboardPage = () => {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [total, setTotal] = useState(0);
+
+  // Keep a ref to beacons to access latest state in WebSocket handler without dependencies
+  const beaconsRef = useRef(beacons);
+  useEffect(() => {
+    beaconsRef.current = beacons;
+  }, [beacons]);
 
   // Initial fetch for beacons
   useEffect(() => {
@@ -39,34 +45,61 @@ const DashboardPage = () => {
   useEffect(() => {
     if (lastMessage) {
       const messages = lastMessage.data.split('\n').filter((msg: string) => msg.trim() !== '');
+      const addedIds = new Set<string>(); // Track IDs added in this batch
+
       messages.forEach((message: string) => {
         try {
           const event = JSON.parse(message);
           if (event.type === 'BEACON_NEW') {
             const newBeacon = event.payload as Beacon;
-            setBeacons(prevBeacons => {
-              // Avoid adding duplicates
-              if (prevBeacons.some(b => b.BeaconID === newBeacon.BeaconID)) {
-                return prevBeacons;
-              }
-              return [...prevBeacons, newBeacon];
-            });
+
+            // Check against current state and this batch
+            if (beaconsRef.current.some(b => b.BeaconID === newBeacon.BeaconID) || addedIds.has(newBeacon.BeaconID)) {
+              return;
+            }
+
+            // Check filters
+            if (status === 'active' && !isBeaconActive(newBeacon.LastSeen)) return;
+            if (status === 'inactive' && isBeaconActive(newBeacon.LastSeen)) return;
+
+            // Mark as added
+            addedIds.add(newBeacon.BeaconID);
+
+            // Update state
+            setBeacons(prevBeacons => [...prevBeacons, newBeacon]);
+            setTotal(prev => prev + 1);
+
           } else if (event.type === 'BEACON_CHECKIN') {
             const { beacon_id, last_seen } = event.payload;
-            setBeacons(prevBeacons =>
-              prevBeacons.map(b =>
+            setBeacons(prevBeacons => {
+              // If filtering by inactive and a beacon checks in, remove it
+              if (status === 'inactive') {
+                return prevBeacons.filter(b => b.BeaconID !== beacon_id);
+              }
+              return prevBeacons.map(b =>
                 b.BeaconID === beacon_id
                   ? { ...b, LastSeen: last_seen }
                   : b
-              )
-            );
+              );
+            });
           }
         } catch (e) {
           console.error("Failed to parse WebSocket message", e);
         }
       });
     }
-  }, [lastMessage]);
+  }, [lastMessage, status]);
+
+  // Periodic check to remove timed-out beacons from "Active" view
+  useEffect(() => {
+    if (status !== 'active') return;
+
+    const interval = setInterval(() => {
+      setBeacons(prev => prev.filter(b => isBeaconActive(b.LastSeen)));
+    }, 5000); // Check every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [status]);
 
 
   const handleDelete = async (beaconId: string) => {
@@ -82,6 +115,7 @@ const DashboardPage = () => {
       await deleteBeacon(beaconId);
       // Remove from UI immediately for better UX
       setBeacons(prevBeacons => prevBeacons.filter(b => b.BeaconID !== beaconId));
+      setTotal(prev => Math.max(0, prev - 1));
     } catch (err) {
       setError('删除Beacon失败');
       console.error('Failed to delete beacon:', err);

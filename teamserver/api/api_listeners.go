@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"simplec2/pkg/logger"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -69,12 +71,32 @@ func (a *API) CreateListener(c *gin.Context) {
 // @Failure 500 {object} StandardResponse
 // @Router /listeners [get]
 func (a *API) GetListeners(c *gin.Context) {
-	listeners, err := a.ListenerService.ListListeners(c.Request.Context())
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil {
+		Respond(c, http.StatusBadRequest, NewErrorResponse(http.StatusBadRequest, "Invalid 'page' parameter", "must be an integer"))
+		return
+	}
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	if err != nil {
+		Respond(c, http.StatusBadRequest, NewErrorResponse(http.StatusBadRequest, "Invalid 'limit' parameter", "must be an integer"))
+		return
+	}
+
+	listeners, total, err := a.ListenerService.ListListeners(c.Request.Context(), page, limit)
 	if err != nil {
 		Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to retrieve listeners", err.Error()))
 		return
 	}
-	Respond(c, http.StatusOK, NewSuccessResponse(listeners, nil))
+
+	totalPages := int(math.Ceil(float64(total) / float64(limit)))
+
+	meta := gin.H{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": totalPages,
+	}
+	Respond(c, http.StatusOK, NewSuccessResponse(listeners, meta))
 }
 
 // DeleteListener godoc

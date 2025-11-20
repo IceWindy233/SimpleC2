@@ -15,7 +15,7 @@ type TaskService interface {
 	GetTask(ctx context.Context, taskID string) (*data.Task, error)
 
 	// GetTasksByBeaconID retrieves all tasks for a specific beacon.
-	GetTasksByBeaconID(ctx context.Context, beaconID string) ([]data.Task, error)
+	GetTasksByBeaconID(ctx context.Context, beaconID string, status string) ([]data.Task, error)
 
 	// CreateTask creates a new task for a beacon.
 	CreateTask(ctx context.Context, beaconID string, command string, arguments string) (*data.Task, error)
@@ -46,13 +46,13 @@ func (s *taskService) GetTask(ctx context.Context, taskID string) (*data.Task, e
 }
 
 // GetTasksByBeaconID retrieves all tasks for a specific beacon.
-func (s *taskService) GetTasksByBeaconID(ctx context.Context, beaconID string) ([]data.Task, error) {
+func (s *taskService) GetTasksByBeaconID(ctx context.Context, beaconID string, status string) ([]data.Task, error) {
 	// First, ensure beacon exists
 	if _, err := s.store.GetBeacon(beaconID); err != nil {
 		return nil, fmt.Errorf("beacon not found: %w", err)
 	}
 
-	tasks, err := s.store.GetTasksByBeaconID(beaconID)
+	tasks, err := s.store.GetTasksByBeaconID(beaconID, status)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tasks for beacon: %w", err)
 	}

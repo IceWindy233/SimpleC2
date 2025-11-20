@@ -19,7 +19,7 @@ type ListenerService interface {
 	DeleteListener(ctx context.Context, name string) error
 
 	// ListListeners retrieves all listeners.
-	ListListeners(ctx context.Context) ([]data.Listener, error)
+	ListListeners(ctx context.Context, page int, limit int) ([]data.Listener, int64, error)
 }
 
 // listenerService implements the ListenerService interface.
@@ -78,10 +78,10 @@ func (s *listenerService) DeleteListener(ctx context.Context, name string) error
 }
 
 // ListListeners retrieves all listeners.
-func (s *listenerService) ListListeners(ctx context.Context) ([]data.Listener, error) {
-	listeners, err := s.store.GetListeners()
+func (s *listenerService) ListListeners(ctx context.Context, page int, limit int) ([]data.Listener, int64, error) {
+	listeners, total, err := s.store.GetListeners(page, limit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list listeners: %w", err)
+		return nil, 0, fmt.Errorf("failed to list listeners: %w", err)
 	}
-	return listeners, nil
+	return listeners, total, nil
 }

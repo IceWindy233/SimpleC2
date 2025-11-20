@@ -8,9 +8,13 @@ func (s *GormStore) GetTask(taskID string) (*Task, error) {
 	return &task, err
 }
 
-func (s *GormStore) GetTasksByBeaconID(beaconID string) ([]Task, error) {
+func (s *GormStore) GetTasksByBeaconID(beaconID string, status string) ([]Task, error) {
 	var tasks []Task
-	err := s.DB.Where("beacon_id = ?", beaconID).Find(&tasks).Error
+	db := s.DB.Where("beacon_id = ?", beaconID)
+	if status != "" {
+		db = db.Where("status = ?", status)
+	}
+	err := db.Find(&tasks).Error
 	return tasks, err
 }
 
@@ -18,6 +22,6 @@ func (s *GormStore) CreateTask(task *Task) error {
 	return s.DB.Create(task).Error
 }
 
-func (s*GormStore) UpdateTask(task *Task) error {
-    return s.DB.Save(task).Error
+func (s *GormStore) UpdateTask(task *Task) error {
+	return s.DB.Save(task).Error
 }

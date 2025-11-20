@@ -25,8 +25,9 @@ func (a *API) GetTask(c *gin.Context) {
 // GetTasksForBeacon handles the API request to retrieve all tasks for a specific beacon.
 func (a *API) GetTasksForBeacon(c *gin.Context) {
 	beaconID := c.Param("beacon_id")
+	status := c.Query("status")
 
-	tasks, err := a.TaskService.GetTasksByBeaconID(c.Request.Context(), beaconID)
+	tasks, err := a.TaskService.GetTasksByBeaconID(c.Request.Context(), beaconID, status)
 	if err != nil {
 		Respond(c, http.StatusNotFound, NewErrorResponse(http.StatusNotFound, "Tasks not found for beacon", err.Error()))
 		return

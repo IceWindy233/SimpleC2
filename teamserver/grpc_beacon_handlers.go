@@ -6,13 +6,14 @@ import (
 	"os"
 	"time"
 
+	"simplec2/pkg/bridge"
+	"simplec2/pkg/logger"
+	"simplec2/teamserver/data"
+
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
-	"simplec2/pkg/bridge"
-	"simplec2/pkg/logger"
-	"simplec2/teamserver/data"
 )
 
 func (s *server) StageBeacon(ctx context.Context, in *bridge.StageBeaconRequest) (*bridge.StageBeaconResponse, error) {
@@ -26,20 +27,20 @@ func (s *server) StageBeacon(ctx context.Context, in *bridge.StageBeaconRequest)
 	}
 
 	beacon := data.Beacon{
-		BeaconID:      uuid.New().String(),
-		Listener:      in.ListenerName,
-		RemoteAddr:    remoteAddr,
-		Status:        "active",
-		FirstSeen:     time.Now(),
-		LastSeen:      time.Now(),
-		Sleep:         5, // Default sleep
-		OS:            in.Metadata.Os,
-		Arch:          in.Metadata.Arch,
-		Username:      in.Metadata.Username,
-		Hostname:      in.Metadata.Hostname,
-		InternalIP:    in.Metadata.InternalIp,
-		ProcessName:   in.Metadata.ProcessName,
-		PID:           in.Metadata.Pid,
+		BeaconID:        uuid.New().String(),
+		Listener:        in.ListenerName,
+		RemoteAddr:      remoteAddr,
+		Status:          "active",
+		FirstSeen:       time.Now(),
+		LastSeen:        time.Now(),
+		Sleep:           5, // Default sleep
+		OS:              in.Metadata.Os,
+		Arch:            in.Metadata.Arch,
+		Username:        in.Metadata.Username,
+		Hostname:        in.Metadata.Hostname,
+		InternalIP:      in.Metadata.InternalIp,
+		ProcessName:     in.Metadata.ProcessName,
+		PID:             in.Metadata.Pid,
 		IsHighIntegrity: in.Metadata.IsHighIntegrity,
 	}
 
@@ -127,7 +128,7 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 	// Find queued tasks for this beacon
 	var grpcTasks []*bridge.Task
 
-	allTasks, err := s.Store.GetTasksByBeaconID(in.BeaconId)
+	allTasks, err := s.Store.GetTasksByBeaconID(in.BeaconId, "queued")
 	if err != nil {
 		logger.Errorf("Error getting tasks for beacon %s: %v", in.BeaconId, err)
 		return nil, err

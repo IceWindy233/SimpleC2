@@ -2,12 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"simplec2/pkg/logger"
 	"simplec2/teamserver/service"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
 )
 
 // GetBeacons handles the API request to list all beacons.
@@ -39,10 +41,13 @@ func (a *API) GetBeacons(c *gin.Context) {
 		return
 	}
 
+	totalPages := int(math.Ceil(float64(total) / float64(limit)))
+
 	meta := gin.H{
-		"page":  page,
-		"limit": limit,
-		"total": total,
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": totalPages,
 	}
 	Respond(c, http.StatusOK, NewSuccessResponse(beacons, meta))
 }

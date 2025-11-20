@@ -1,5 +1,9 @@
 package data
 
+import (
+	"time"
+)
+
 // --- Beacon Methods ---
 
 func (s *GormStore) GetBeacons(query *BeaconQuery) ([]Beacon, int64, error) {
@@ -10,7 +14,16 @@ func (s *GormStore) GetBeacons(query *BeaconQuery) ([]Beacon, int64, error) {
 	if query.Search != "" {
 		db = db.Where("hostname LIKE ? OR username LIKE ? OR internal_ip LIKE ?", "%"+query.Search+"%", "%"+query.Search+"%", "%"+query.Search+"%")
 	}
-	if query.Status != "" {
+	if query.Status == "active" {
+		// Active means seen in the last 30 seconds
+		cutoff := time.Now().Add(-30 * time.Second)
+		db = db.Where("last_seen >= ?", cutoff)
+	} else if query.Status == "inactive" {
+		// Inactive means not seen in the last 30 seconds
+		cutoff := time.Now().Add(-30 * time.Second)
+		db = db.Where("last_seen < ?", cutoff)
+	} else if query.Status != "" {
+		// Fallback for other statuses if any
 		db = db.Where("status = ?", query.Status)
 	}
 

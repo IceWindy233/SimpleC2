@@ -24,12 +24,12 @@ type DataStore interface {
 
 	// Task methods
 	GetTask(taskID string) (*Task, error)
-	GetTasksByBeaconID(beaconID string) ([]Task, error)
+	GetTasksByBeaconID(beaconID string, status string) ([]Task, error)
 	CreateTask(task *Task) error
 	UpdateTask(task *Task) error
 
 	// Listener methods
-	GetListeners() ([]Listener, error)
+	GetListeners(page int, limit int) ([]Listener, int64, error)
 	GetListener(name string) (*Listener, error)
 	CreateListener(listener *Listener) error
 	DeleteListener(name string) error
