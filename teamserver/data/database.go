@@ -5,17 +5,18 @@ import (
 	"os"
 	"path/filepath"
 
+	"simplec2/pkg/config"
+	"simplec2/pkg/logger"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"simplec2/pkg/config"
-	"simplec2/pkg/logger"
 )
 
 // DataStore defines the interface for all database operations.
 type DataStore interface {
 	// Beacon methods
-	GetBeacons() ([]Beacon, error)
+	GetBeacons(query *BeaconQuery) ([]Beacon, int64, error)
 	GetBeacon(beaconID string) (*Beacon, error)
 	CreateBeacon(beacon *Beacon) error
 	UpdateBeacon(beacon *Beacon) error

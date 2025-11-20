@@ -34,7 +34,7 @@ type BeaconService interface {
 
 // ListQuery defines parameters for paginated and filtered queries.
 type ListQuery struct {
-	Page   int    `form:"page,default=1"`    // Page number (1-based)
+	Page   int    `form:"page,default=1"`   // Page number (1-based)
 	Limit  int    `form:"limit,default=20"` // Items per page
 	Search string `form:"search"`           // Optional search/filter term
 	Status string `form:"status"`           // Optional status filter
@@ -145,14 +145,16 @@ func (s *beaconService) GetBeacon(ctx context.Context, beaconID string) (*data.B
 
 // ListBeacons retrieves all beacons with optional filtering and pagination.
 func (s *beaconService) ListBeacons(ctx context.Context, query *ListQuery) ([]data.Beacon, int64, error) {
-	// TODO: Implement pagination and filtering in the store layer
-	// For now, just get all beacons
-	beacons, err := s.store.GetBeacons()
+	storeQuery := &data.BeaconQuery{
+		Page:   query.Page,
+		Limit:  query.Limit,
+		Search: query.Search,
+		Status: query.Status,
+	}
+	beacons, total, err := s.store.GetBeacons(storeQuery)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list beacons: %w", err)
 	}
-
-	total := int64(len(beacons))
 	return beacons, total, nil
 }
 

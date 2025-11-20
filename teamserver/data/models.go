@@ -34,6 +34,14 @@ type Beacon struct {
 	IsHighIntegrity bool
 }
 
+// BeaconQuery defines parameters for querying beacons.
+type BeaconQuery struct {
+	Page   int
+	Limit  int
+	Search string
+	Status string
+}
+
 // Task represents a command to be executed by a beacon.
 type Task struct {
 	gorm.Model
@@ -66,4 +74,3 @@ type Session struct {
 	UserAgent string // Client user agent
 	IsActive  bool   `gorm:"default:true;index"` // Whether the session is active
 }
-

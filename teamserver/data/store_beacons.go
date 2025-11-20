@@ -2,10 +2,26 @@ package data
 
 // --- Beacon Methods ---
 
-func (s *GormStore) GetBeacons() ([]Beacon, error) {
+func (s *GormStore) GetBeacons(query *BeaconQuery) ([]Beacon, int64, error) {
 	var beacons []Beacon
-	err := s.DB.Find(&beacons).Error
-	return beacons, err
+	var total int64
+	db := s.DB.Model(&Beacon{})
+
+	if query.Search != "" {
+		db = db.Where("hostname LIKE ? OR username LIKE ? OR internal_ip LIKE ?", "%"+query.Search+"%", "%"+query.Search+"%", "%"+query.Search+"%")
+	}
+	if query.Status != "" {
+		db = db.Where("status = ?", query.Status)
+	}
+
+	err := db.Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	offset := (query.Page - 1) * query.Limit
+	err = db.Limit(query.Limit).Offset(offset).Find(&beacons).Error
+	return beacons, total, err
 }
 
 func (s *GormStore) GetBeacon(beaconID string) (*Beacon, error) {

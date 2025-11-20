@@ -39,10 +39,20 @@ if (initialToken) {
 }
 
 
-export const getBeacons = async () => {
-  const response = await api.get('/beacons');
+export const getBeacons = async (page: number, limit: number, search: string, status: string) => {
+  const response = await api.get('/beacons', {
+    params: {
+      page,
+      limit,
+      search,
+      status,
+    },
+  });
   if (response.data.success) {
-    return response.data.data;
+    return {
+      beacons: response.data.data,
+      total: response.data.meta?.total || 0
+    };
   } else {
     throw new Error(response.data.error.message);
   }

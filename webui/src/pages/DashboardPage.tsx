@@ -11,13 +11,19 @@ const DashboardPage = () => {
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const { lastMessage } = useWebSocket();
   const { isAuthenticated } = useAuth();
+  const [page, setPage] = useState(1);
+  const [limit] = useState(10);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
+  const [total, setTotal] = useState(0);
 
   // Initial fetch for beacons
   useEffect(() => {
     const fetchBeacons = async () => {
       try {
-        const data = await getBeacons();
-        setBeacons(data || []); // Ensure data is not null/undefined
+        const data = await getBeacons(page, limit, search, status);
+        setBeacons(data.beacons || []); // Ensure data is not null/undefined
+        setTotal(data.total || 0);
       } catch (err) {
         setError('Failed to fetch beacons.');
         console.error(err);
@@ -27,7 +33,7 @@ const DashboardPage = () => {
     if (isAuthenticated) {
       fetchBeacons();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, page, limit, search, status]);
 
   // WebSocket message handling for real-time updates
   useEffect(() => {
@@ -95,6 +101,26 @@ const DashboardPage = () => {
   return (
     <div>
       <h2 className="mb-4">Beacons</h2>
+      <div className="d-flex justify-content-between mb-3">
+        <div className="d-flex">
+          <input type="text" className="form-control me-2" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
+          <select className="form-select me-2" value={status} onChange={e => setStatus(e.target.value)}>
+            <option value="">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+        <div className="d-flex align-items-center">
+          <span className="me-3">Total: {total}</span>
+          <button className="btn btn-sm btn-outline-secondary me-2" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+            &lt;
+          </button>
+          <span className="me-2">Page {page}</span>
+          <button className="btn btn-sm btn-outline-secondary" onClick={() => setPage(p => p + 1)} disabled={page * limit >= total}>
+            &gt;
+          </button>
+        </div>
+      </div>
       {error && <div className="alert alert-danger">{error}</div>}
       <div className="table-responsive">
         <table className="table table-dark table-hover table-sm">
@@ -114,7 +140,7 @@ const DashboardPage = () => {
             {beacons.map((beacon) => (
               <tr key={beacon.ID}>
                 <td>
-                  <span 
+                  <span
                     className={`badge ${isBeaconActive(beacon.LastSeen) ? 'bg-success' : 'bg-danger'}`}>
                     {isBeaconActive(beacon.LastSeen) ? 'Active' : 'Inactive'}
                   </span>
