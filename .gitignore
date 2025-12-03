@@ -67,3 +67,6 @@ GEMINI.md
 .github
 .gemini/
 gha-creds-*.json
+
+# WebUI_old
+webui_old

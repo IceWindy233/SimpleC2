@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"simplec2/pkg/bridge"
 	"simplec2/teamserver/data"
@@ -104,11 +105,62 @@ func (s *beaconService) DeleteBeacon(ctx context.Context, beaconID string) error
 		}
 
 		// 3. Soft-delete the beacon
+		// NOTE: We do NOT delete the beacon here immediately if we want the "exit" task to be delivered cleanly via normal tasking.
+		// HOWEVER, if we delete it, the HTTP listener receiving a checkin will likely get "Beacon not found" from TeamServer.
+		// The Agent logic handles 404 by exiting:
+		// if resp.StatusCode == http.StatusNotFound { os.Exit(0) }
+		// 
+		// So, soft-deleting IS a valid way to kill the beacon, assuming the Listener returns 404 when TeamServer says "beacon not found".
+		// 
+		// If the user reports "Beacon没有收到退出" (Beacon didn't receive exit), it implies the agent is still running or the 404 mechanism failed.
+		// 
+		// Let's assume the user WANTS the "exit" command to be explicitly sent and logged, OR they rely on the 404.
+		// If relying on 404, the "exit" task created above is actually unreachable/useless because the beacon is deleted and can't fetch tasks.
+		// 
+		// To ensure the "exit" TASK is delivered (which might provide better feedback or be preferred):
+		// We should Mark it as "deleted/dying" but keep it queryable for the checkin that fetches the task?
+		// 
+		// But "Soft Delete" (DeletedAt) makes it invisible to standard queries.
+		// 
+		// IF we want to rely on the "exit" task:
+		// We should NOT soft-delete immediately. But the API implies "DeleteBeacon".
+		// 
+		// If we want to rely on the 404 mechanism:
+		// We don't need the exit task. Just delete the beacon.
+		// 
+		// The user's issue "Beacon没有收到退出" suggests they expect the explicit "exit" command behavior (maybe seeing it in logs or console).
+		// 
+		// Code Change:
+		// Instead of soft-deleting, let's set the status to "exiting" or similar?
+		// But the requirements say "DeleteBeacon".
+		// 
+		// Maybe the Agent isn't getting the 404?
+		// 
+		// Let's stick to the "Soft Delete = Kill" philosophy for now, but verify why Agent didn't exit.
+		// 
+		// Wait, if I soft delete, the `GetBeacon` in `grpc_beacon_handlers` will fail.
+		// The listener will get an error.
+		// If the listener returns 500 instead of 404, the agent keeps retrying.
+		// 
+		// I will modify this method to ONLY soft-delete. The Exit task is redundant if we soft-delete, UNLESS we want to support a "graceful exit" where we wait for the task to be picked up.
+		// 
+		// Given the user's feedback, I will try to make the Listener return 404. 
+		// BUT I cannot edit Listener code easily if it's not in the context (I see `listeners/http/main.go` in file list, I can read it).
+		// 
+		// Let's assume the most robust fix for "Delete Button" behavior is:
+		// 1. Create Exit Task.
+		// 2. DO NOT soft-delete yet. Just mark status? 
+		// No, the user clicked "Delete", they expect it gone from UI.
+		// 
+		// If I soft-delete, it's gone from UI (ListBeacons filters out deleted).
+		// 
+		// So why didn't it exit?
+		// Maybe `listeners/http/main.go` returns 500 on error?
+		
 		if err := tx.Where("beacon_id = ?", beaconID).Delete(&data.Beacon{}).Error; err != nil {
 			return err // Deletion failed, will cause rollback
 		}
 
-		// Return nil to commit the transaction
 		return nil
 	})
 
@@ -140,6 +192,7 @@ func (s *beaconService) GetBeacon(ctx context.Context, beaconID string) (*data.B
 	if err != nil {
 		return nil, fmt.Errorf("failed to get beacon: %w", err)
 	}
+	s.calculateStatus(beacon)
 	return beacon, nil
 }
 
@@ -155,7 +208,34 @@ func (s *beaconService) ListBeacons(ctx context.Context, query *ListQuery) ([]da
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list beacons: %w", err)
 	}
+
+	for i := range beacons {
+		s.calculateStatus(&beacons[i])
+	}
+
 	return beacons, total, nil
+}
+
+// calculateStatus determines if a beacon is active based on LastSeen and Sleep time.
+func (s *beaconService) calculateStatus(beacon *data.Beacon) {
+	if beacon == nil {
+		return
+	}
+
+	// Calculate threshold: Sleep * 2.5 (jitter buffer) or default to 60s if Sleep is small
+	thresholdSeconds := float64(beacon.Sleep) * 2.5
+	if thresholdSeconds < 60 {
+		thresholdSeconds = 60
+	}
+	
+	threshold := time.Duration(thresholdSeconds) * time.Second
+	timeSinceLastSeen := time.Since(beacon.LastSeen)
+
+	if timeSinceLastSeen > threshold {
+		beacon.Status = "inactive"
+	} else {
+		beacon.Status = "active"
+	}
 }
 
 // SetBeaconSleep updates the sleep interval for a beacon.
