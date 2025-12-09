@@ -1,11 +1,12 @@
 package api
 
 import (
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
 	"simplec2/pkg/config"
 	"simplec2/teamserver/service"
 	"simplec2/teamserver/websocket"
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 )
 
 // API holds the configuration and dependencies for the API handlers.
@@ -74,7 +75,7 @@ func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService
 		protected.POST("/upload/init", api.UploadInit)
 		protected.POST("/upload/chunk", api.UploadChunk)
 		protected.POST("/upload/complete", api.UploadComplete)
-		protected.GET("/loot/:filename", api.DownloadLootFile)
+		protected.GET("/loot/*filepath", api.DownloadLootFile)
 	}
 
 	return router

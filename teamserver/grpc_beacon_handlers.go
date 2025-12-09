@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"time"
 
 	"simplec2/pkg/bridge"
 	"simplec2/pkg/logger"
+	"simplec2/teamserver/commands"
 	"simplec2/teamserver/data"
 
 	"github.com/google/uuid"
@@ -139,102 +139,51 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 			continue
 		}
 
-		var cmdID uint32
-		var taskArgs []byte
-
-		switch dbTask.Command {
-		case "shell":
-			cmdID = 1
-			taskArgs = []byte(dbTask.Arguments)
-		case "download":
-			cmdID = 2
-			if dbTask.Arguments == "" {
-				logger.Warnf("Download task %s has no arguments", dbTask.TaskID)
-				taskArgs = nil
-			} else {
-				var downloadArgs struct {
-					Source      string `json:"source"`
-					Destination string `json:"destination"`
-				}
-				if err := json.Unmarshal([]byte(dbTask.Arguments), &downloadArgs); err != nil {
-					logger.Errorf("Failed to parse download arguments for task %s: %v", dbTask.TaskID, err)
-					taskArgs = nil
-				} else {
-					sourcePath := downloadArgs.Source
-
-					fileInfo, err := os.Stat(sourcePath)
-					if err != nil {
-						logger.Errorf("Failed to get file info for %s: %v", sourcePath, err)
-						// Optionally, update task to 'error' state here.
-						continue
-					}
-
-					// Broadcast FILE_DOWNLOAD_STARTED event
-					startEvent := struct {
-						Type    string      `json:"type"`
-						Payload interface{} `json:"payload"`
-					}{
-						Type: "FILE_DOWNLOAD_STARTED",
-						Payload: map[string]interface{}{
-							"task_id":     dbTask.TaskID,
-							"beacon_id":   dbTask.BeaconID,
-							"source":      sourcePath,
-							"destination": downloadArgs.Destination,
-							"file_size":   fileInfo.Size(),
-						},
-					}
-					startEventBytes, err := json.Marshal(startEvent)
-					if err != nil {
-						logger.Errorf("Error marshalling FILE_DOWNLOAD_STARTED event: %v", err)
-					} else {
-						s.Hub.Broadcast(startEventBytes)
-						logger.Debugf("Broadcasted FILE_DOWNLOAD_STARTED event for %s", sourcePath)
-					}
-
-					// Prepare arguments for the beacon to initiate chunked download
-					beaconArgs := struct {
-						Source      string `json:"source"`
-						Destination string `json:"destination"`
-						FileSize    int64  `json:"file_size"`
-						ChunkSize   int    `json:"chunk_size"`
-					}{
-						Source:      downloadArgs.Source, // Keep original source for beacon's reference if needed
-						Destination: downloadArgs.Destination,
-						FileSize:    fileInfo.Size(),
-						ChunkSize:   ChunkSize, // Use the constant defined in grpc_file_handlers
-					}
-					taskArgs, _ = json.Marshal(beaconArgs)
-					logger.Infof("Prepared chunked download task for %s (%d bytes)", downloadArgs.Destination, fileInfo.Size())
-				}
-			}
-		case "upload":
-			cmdID = 3
-			taskArgs = []byte(dbTask.Arguments)
-		case "exit":
-			cmdID = 4
-			taskArgs = nil
-		case "sleep":
-			cmdID = 5
-			// 解析sleep参数，验证范围 (1-3600秒)
-			logger.Infof("Processing sleep task %s: Arguments=%q (len=%d)", dbTask.TaskID, dbTask.Arguments, len(dbTask.Arguments))
-			if dbTask.Arguments != "" {
-				taskArgs = []byte(dbTask.Arguments)
-			} else {
-				// 默认sleep值
-				taskArgs = []byte("5")
-			}
-			logger.Debugf("Sleep task %s: taskArgs=%q (len=%d)", dbTask.TaskID, taskArgs, len(taskArgs))
-		case "browse":
-			cmdID = 6
-			taskArgs = []byte(dbTask.Arguments)
-		default:
+		// 使用命令注册表获取转换器
+		converter, ok := commands.Get(dbTask.Command)
+		if !ok {
 			logger.Warnf("Unknown command type for task %s: %s", dbTask.TaskID, dbTask.Command)
 			continue
 		}
 
+		// 转换任务参数
+		taskArgs, err := converter.Convert(&dbTask)
+		if err != nil {
+			logger.Errorf("Failed to convert task %s: %v", dbTask.TaskID, err)
+			continue
+		}
+
+		// download 命令需要额外广播 FILE_DOWNLOAD_STARTED 事件
+		if dbTask.Command == "download" && taskArgs != nil {
+			var downloadArgs struct {
+				Source      string `json:"source"`
+				Destination string `json:"destination"`
+				FileSize    int64  `json:"file_size"`
+			}
+			if err := json.Unmarshal(taskArgs, &downloadArgs); err == nil {
+				startEvent := struct {
+					Type    string      `json:"type"`
+					Payload interface{} `json:"payload"`
+				}{
+					Type: "FILE_DOWNLOAD_STARTED",
+					Payload: map[string]interface{}{
+						"task_id":     dbTask.TaskID,
+						"beacon_id":   dbTask.BeaconID,
+						"source":      downloadArgs.Source,
+						"destination": downloadArgs.Destination,
+						"file_size":   downloadArgs.FileSize,
+					},
+				}
+				if startEventBytes, err := json.Marshal(startEvent); err == nil {
+					s.Hub.Broadcast(startEventBytes)
+					logger.Debugf("Broadcasted FILE_DOWNLOAD_STARTED event for %s", downloadArgs.Source)
+				}
+			}
+		}
+
 		grpcTasks = append(grpcTasks, &bridge.Task{
 			TaskId:    dbTask.TaskID,
-			CommandId: cmdID,
+			CommandId: converter.CommandID(),
 			Arguments: taskArgs,
 		})
 

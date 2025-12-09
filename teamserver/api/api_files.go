@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -155,15 +156,19 @@ func (a *API) UploadComplete(c *gin.Context) {
 // @Router /files/loot/{filename} [get]
 // DownloadLootFile handles the API request to download a loot file.
 func (a *API) DownloadLootFile(c *gin.Context) {
-	// 1. Get and sanitize filename to prevent path traversal.
-	filename := filepath.Base(c.Param("filename"))
-	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename"})
+	// 1. Get and clean the filepath (supports task_id/filename format)
+	requestPath := c.Param("filepath")
+	// Remove leading slash from wildcard match
+	requestPath = strings.TrimPrefix(requestPath, "/")
+
+	// Security: check for path traversal
+	if strings.Contains(requestPath, "..") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filepath"})
 		return
 	}
 
 	// 2. Construct the full, cleaned path.
-	filePath := filepath.Clean(filepath.Join(a.Config.LootDir, filename))
+	filePath := filepath.Clean(filepath.Join(a.Config.LootDir, requestPath))
 
 	// 3. Security Check: Ensure the final path is within the intended loot directory.
 	absLootDir, err := filepath.Abs(a.Config.LootDir)
@@ -198,7 +203,11 @@ func (a *API) DownloadLootFile(c *gin.Context) {
 	}
 
 	// 5. Serve the file with secure headers.
-	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	// Use RFC 5987 encoding for non-ASCII filenames (e.g., Chinese characters)
+	// Only use the actual filename (not the task_id directory) for download
+	downloadFilename := filepath.Base(requestPath)
+	encodedFilename := url.PathEscape(downloadFilename)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", encodedFilename))
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.File(absFilePath)
 }
