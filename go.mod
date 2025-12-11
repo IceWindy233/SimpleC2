@@ -7,6 +7,7 @@ require (
 	github.com/gin-gonic/gin v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
+	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.43.0
 	golang.org/x/text v0.30.0
@@ -18,7 +19,13 @@ require (
 	gorm.io/gorm v1.31.0
 )
 
-require go.uber.org/multierr v1.10.0 // indirect
+require (
+	github.com/gen2brain/shm v0.1.0 // indirect
+	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/jezek/xgb v1.1.1 // indirect
+	github.com/lxn/win v0.0.0-20210218163916-a377121e959e // indirect
+	go.uber.org/multierr v1.10.0 // indirect
+)
 
 require (
 	github.com/bytedance/sonic v1.14.0 // indirect

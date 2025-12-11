@@ -123,6 +123,24 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 				logger.Infof("Broadcasted BEACON_EXITED event for %s", beacon.BeaconID)
 			}
 		}
+	} else if task.Command == "screenshot" {
+		// 保存截图到 loot 目录
+		screenshotFileName := "screenshot.png"
+		lootTaskDir := filepath.Join(s.Config.LootDir, task.TaskID)
+		if err := os.MkdirAll(lootTaskDir, 0755); err != nil {
+			logger.Errorf("Error creating loot directory for screenshot task %s: %v", task.TaskID, err)
+			outputMessage = fmt.Sprintf("Failed to save screenshot: %v", err)
+		} else {
+			lootFilePath := filepath.Join(lootTaskDir, screenshotFileName)
+			if err := os.WriteFile(lootFilePath, in.Output, 0644); err != nil {
+				logger.Errorf("Error saving screenshot for task %s: %v", task.TaskID, err)
+				outputMessage = fmt.Sprintf("Failed to save screenshot: %v", err)
+			} else {
+				logger.Infof("Saved screenshot to %s", lootFilePath)
+				// 返回相对路径供 WebUI 获取
+				outputMessage = filepath.Join(task.TaskID, screenshotFileName)
+			}
+		}
 	} else if task.Command == "download" {
 		// For download command, get the completion message
 		if utf8.Valid(in.Output) {

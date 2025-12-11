@@ -47,6 +47,11 @@
                     <Button variant="primary" size="sm" @click="downloadLoot(log.content)">Download File</Button>
                   </div>
                 </div>
+                <!-- 截图输出：显示为内嵌图片 -->
+                <div v-else-if="log.type === 'output' && log.command === 'screenshot'" class="log-screenshot">
+                  <img v-if="screenshotUrls[log.id]" :src="screenshotUrls[log.id]" alt="Screenshot" class="screenshot-img" @click="openScreenshotBlob(log.id)" />
+                  <div v-else class="screenshot-loading">Loading screenshot...</div>
+                </div>
                 <pre v-else class="log-content">{{ log.content }}</pre>
               </div>
             </div>
@@ -132,6 +137,7 @@ const command = ref('')
 const consoleOutput = ref<HTMLElement | null>(null)
 const beacon = ref<any>(null)
 const logs = ref<any[]>([])
+const screenshotUrls = ref<Record<string, string>>({}) // 存储已加载的截图 blob URL
 
 const fetchBeacon = async () => {
   try {
@@ -263,6 +269,60 @@ const deleteBeacon = async () => {
   }
 }
 
+const openScreenshot = (path: string) => {
+  // 在新标签页打开截图
+  window.open(`/api/loot/${path}`, '_blank')
+}
+
+const loadScreenshot = async (logId: string, path: string) => {
+  // 避免重复加载
+  if (screenshotUrls.value[logId]) return
+  
+  try {
+    const response = await api.get(`/loot/${encodeURIComponent(path)}`, { responseType: 'blob' })
+    const blobUrl = window.URL.createObjectURL(new Blob([response.data]))
+    screenshotUrls.value[logId] = blobUrl
+  } catch (error) {
+    console.error('Failed to load screenshot:', error)
+  }
+}
+
+const openScreenshotBlob = (logId: string) => {
+  const blobUrl = screenshotUrls.value[logId]
+  if (blobUrl) {
+    // 创建一个包含图片的 HTML 页面
+    const newWindow = window.open('', '_blank')
+    if (newWindow) {
+      newWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Screenshot</title>
+            <style>
+              body {
+                margin: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                background: #1e1e1e;
+              }
+              img {
+                max-width: 100%;
+                max-height: 100vh;
+              }
+            </style>
+          </head>
+          <body>
+            <img src="${blobUrl}" alt="Screenshot" />
+          </body>
+        </html>
+      `)
+      newWindow.document.close()
+    }
+  }
+}
+
 const scrollToBottom = () => {
   nextTick(() => {
     if (consoleOutput.value) {
@@ -299,6 +359,17 @@ const handleWebSocketMessage = (message: any) => {
     }
   }
 }
+
+import { watch } from 'vue'
+
+// 监听 logs 变化，自动加载截图
+watch(logs, (newLogs) => {
+  newLogs.forEach((log: any) => {
+    if (log.type === 'output' && log.command === 'screenshot' && log.content) {
+      loadScreenshot(log.id, log.content)
+    }
+  })
+}, { deep: true })
 
 onMounted(() => {
   fetchBeacon()
@@ -456,6 +527,30 @@ onUnmounted(() => {
 .log-content {
   white-space: pre-wrap;
   margin: 0;
+}
+
+.log-screenshot {
+  margin: var(--spacing-sm) 0;
+}
+
+.screenshot-loading {
+  color: var(--color-text-secondary);
+  font-style: italic;
+  padding: var(--spacing-sm);
+}
+
+.screenshot-img {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.screenshot-img:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .console-input {
