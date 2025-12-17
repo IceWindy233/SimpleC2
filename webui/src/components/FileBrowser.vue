@@ -96,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import Button from './ui/Button.vue'
 import Input from './ui/Input.vue'
 import Table from './ui/Table.vue'
@@ -176,7 +176,8 @@ const listFiles = async () => {
     // Send browse command
     await api.post(`/beacons/${props.beaconId}/tasks`, {
       command: 'browse',
-      arguments: currentPath.value
+      arguments: currentPath.value,
+      source: 'ui'
     })
   } catch (error) {
     console.error(error)
@@ -305,7 +306,8 @@ const handleFileUpload = async (event: Event) => {
       
       await api.post(`/beacons/${props.beaconId}/tasks`, {
         command: 'download',
-        arguments: JSON.stringify(downloadArgs)
+        arguments: JSON.stringify(downloadArgs),
+        source: 'ui'
       })
       
       toast.success('下发任务已发送')
@@ -369,7 +371,8 @@ const downloadFile = async (row: any) => {
     // Arguments should be the file path string, not JSON
     await api.post(`/beacons/${props.beaconId}/tasks`, {
       command: 'upload',
-      arguments: fullPath
+      arguments: fullPath,
+      source: 'ui'
     })
     toast.success('下载任务已发送')
   } catch (error) {
@@ -388,7 +391,8 @@ const deleteFile = async (row: any) => {
     
     await api.post(`/beacons/${props.beaconId}/tasks`, {
       command: 'rm',
-      arguments: fullPath
+      arguments: fullPath,
+      source: 'ui'
     })
     toast.success('删除任务已发送')
   } catch (error) {
@@ -482,7 +486,7 @@ onMounted(() => {
   listFiles()
 })
 
-import { onUnmounted } from 'vue'
+
 onUnmounted(() => {
   webSocketService.removeMessageHandler(handleWebSocketMessage)
 })

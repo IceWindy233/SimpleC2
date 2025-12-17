@@ -16,11 +16,12 @@ type API struct {
 	TaskService     service.TaskService
 	ListenerService service.ListenerService
 	SessionService  *service.SessionService
+	PortFwdService  service.PortFwdService
 	Hub             *websocket.Hub
 }
 
 // NewRouter sets up the API routes and returns the Gin engine.
-func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService, taskService service.TaskService, listenerService service.ListenerService, sessionService *service.SessionService, hub *websocket.Hub) *gin.Engine {
+func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService, taskService service.TaskService, listenerService service.ListenerService, sessionService *service.SessionService, portFwdService service.PortFwdService, hub *websocket.Hub) *gin.Engine {
 	router := gin.Default()
 
 	// Add CORS middleware
@@ -35,6 +36,7 @@ func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService
 		TaskService:     taskService,
 		ListenerService: listenerService,
 		SessionService:  sessionService,
+		PortFwdService:  portFwdService,
 		Hub:             hub,
 	}
 
@@ -70,12 +72,21 @@ func NewRouter(cfg *config.TeamServerConfig, beaconService service.BeaconService
 		protected.GET("/listeners", api.GetListeners)
 		protected.POST("/listeners", api.CreateListener)
 		protected.DELETE("/listeners/:name", api.DeleteListener)
+		protected.POST("/listeners/:name/start", api.StartListener)
+		protected.POST("/listeners/:name/stop", api.StopListener)
+		protected.POST("/listeners/:name/restart", api.RestartListener)
 
 		// File operations
 		protected.POST("/upload/init", api.UploadInit)
 		protected.POST("/upload/chunk", api.UploadChunk)
 		protected.POST("/upload/complete", api.UploadComplete)
 		protected.GET("/loot/*filepath", api.DownloadLootFile)
+
+		// Tunnel management
+		protected.POST("/tunnels/start", api.StartTunnel)
+		protected.GET("/tunnels", api.ListTunnels)
+		protected.GET("/tunnels/:tunnel_id", api.GetTunnel)
+		protected.POST("/tunnels/:tunnel_id/close", api.CloseTunnel)
 	}
 
 	return router

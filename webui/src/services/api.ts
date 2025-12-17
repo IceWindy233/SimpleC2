@@ -64,4 +64,31 @@ export const downloadLootFile = async (filename: string) => {
     }
 }
 
+export const getTunnels = async () => {
+    try {
+        const response = await api.get('/tunnels')
+        return response.data
+    } catch (error) {
+        throw error
+    }
+}
+
+export const startTunnel = async (beaconId: string, target: string) => {
+    try {
+        const response = await api.post('/tunnels/start', { beacon_id: beaconId, target })
+        return response.data
+    } catch (error) {
+        throw error
+    }
+}
+
+export const closeTunnel = async (tunnelId: string) => {
+    try {
+        const response = await api.post(`/tunnels/${tunnelId}/close`)
+        return response.data
+    } catch (error) {
+        throw error
+    }
+}
+
 export default api

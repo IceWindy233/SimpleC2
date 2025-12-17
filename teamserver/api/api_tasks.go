@@ -39,6 +39,7 @@ func (a *API) GetTasksForBeacon(c *gin.Context) {
 type CreateTaskRequest struct {
 	Command   string `json:"command" binding:"required"`
 	Arguments string `json:"arguments"`
+	Source    string `json:"source"`
 }
 
 // CreateTaskForBeacon handles the API request to create a new task for a beacon.
@@ -51,7 +52,7 @@ func (a *API) CreateTaskForBeacon(c *gin.Context) {
 		return
 	}
 
-	task, err := a.TaskService.CreateTask(c.Request.Context(), beaconID, req.Command, req.Arguments)
+	task, err := a.TaskService.CreateTask(c.Request.Context(), beaconID, req.Command, req.Arguments, req.Source)
 	if err != nil {
 		Respond(c, http.StatusNotFound, NewErrorResponse(http.StatusNotFound, "Failed to create task", err.Error()))
 		return

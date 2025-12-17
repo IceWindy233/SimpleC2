@@ -84,6 +84,12 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 	// Update beacon's last seen time
 	beacon.LastSeen = time.Now()
 
+	// Process any outgoing tunnel messages from the agent
+	if len(in.OutgoingTunnelData) > 0 {
+		logger.Debugf("Beacon %s sent %d outgoing tunnel messages.", in.BeaconId, len(in.OutgoingTunnelData))
+		s.PortFwdService.ProcessAgentOutgoingMessages(ctx, in.BeaconId, in.OutgoingTunnelData)
+	}
+
 	// If beacon is in 'exiting' state, send it an exit task.
 	if beacon.Status == "exiting" {
 		logger.Infof("Beacon %s is in 'exiting' state. Sending final exit task.", in.BeaconId)
@@ -208,8 +214,12 @@ func (s *server) CheckInBeacon(ctx context.Context, in *bridge.CheckInBeaconRequ
 		}
 	}
 
+	// Retrieve any incoming tunnel messages for this agent
+	incomingTunnelMsgs := s.PortFwdService.GetAgentIncomingMessages(ctx, in.BeaconId)
+
 	return &bridge.CheckInBeaconResponse{
-		Tasks: grpcTasks,
+		Tasks:              grpcTasks,
+		IncomingTunnelData: incomingTunnelMsgs,
 		// NewSleep 字段不再使用，sleep间隔现在通过任务系统控制
 	}, nil
 }

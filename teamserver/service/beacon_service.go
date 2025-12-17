@@ -99,6 +99,7 @@ func (s *beaconService) DeleteBeacon(ctx context.Context, beaconID string) error
 			Command:   "exit",
 			Arguments: "",
 			Status:    "queued",
+			Source:    "system",
 		}
 		if err := tx.Create(&exitTask).Error; err != nil {
 			return err // Task creation failed, will cause rollback

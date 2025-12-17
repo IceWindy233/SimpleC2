@@ -71,6 +71,65 @@ func ConnectToTeamServer(cfg *config.ListenerConfig) (*grpc.ClientConn, error) {
 	return conn, nil
 }
 
+// StartControlChannel starts the bi-directional control stream with the TeamServer.
+// commandHandler is a function that will be called when a command is received from the TeamServer.
+func StartControlChannel(cfg *config.ListenerConfig, listenerType string, configJSON string, commandHandler func(*bridge.ListenerCommand)) {
+	go func() {
+		for {
+			// Create a context without timeout for the long-lived stream
+			ctx := context.Background()
+			
+			// Add auth headers
+			apiKey, err := cfg.GetAPIKey()
+			if err != nil {
+				log.Printf("Warning: Failed to get API key for control channel: %v", err)
+				apiKey = cfg.Auth.APIKey
+			}
+			md := metadata.New(map[string]string{"authorization": "Bearer " + apiKey})
+			ctx = metadata.NewOutgoingContext(ctx, md)
+
+			stream, err := TSClient.ListenerControl(ctx)
+			if err != nil {
+				log.Printf("Failed to connect to control channel: %v. Retrying in 5s...", err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			// Send initial status
+			err = stream.Send(&bridge.ListenerStatus{
+				ListenerName: cfg.Listener.Name,
+				Active:       true, // Assuming active upon connection
+				Type:         listenerType,
+				ConfigJson:   configJSON,
+			})
+			if err != nil {
+				log.Printf("Failed to send initial status: %v", err)
+				stream.CloseSend()
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			log.Println("Control channel established.")
+
+			// Receive loop
+			for {
+				cmd, err := stream.Recv()
+				if err != nil {
+					log.Printf("Control channel disconnected: %v", err)
+					break // Break inner loop to reconnect
+				}
+
+				// Call the handler
+				if commandHandler != nil {
+					go commandHandler(cmd)
+				}
+			}
+
+			time.Sleep(5 * time.Second) // Wait before reconnecting
+		}
+	}()
+}
+
 // CreateAuthenticatedContext creates a new context with the API key attached for gRPC calls.
 func CreateAuthenticatedContext(cfg *config.ListenerConfig) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

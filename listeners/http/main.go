@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -15,11 +16,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
+	"time"
 
 	"simplec2/listeners/common"
 	"simplec2/pkg/bridge"
 	"simplec2/pkg/config"
+	"simplec2/pkg/pki"
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
@@ -29,6 +33,10 @@ var (
 	cfg         config.ListenerConfig
 	privateKey  *rsa.PrivateKey
 	sessionKeys sync.Map // Thread-safe map: sessionID -> sessionKey
+
+	// HTTP Server state
+	httpServer *http.Server
+	serverMu   sync.Mutex
 )
 
 func main() {
@@ -56,16 +64,94 @@ func main() {
 
 	loadPrivateKey()
 
-	http.HandleFunc("/handshake", handshakeHandler)
-	http.HandleFunc("/stage", stageHandler)
-	http.HandleFunc("/checkin", checkinHandler)
-	http.HandleFunc("/output", outputHandler)
-	http.HandleFunc("/chunk", chunkHandler)
+	// Construct config JSON for registration
+	configJSON, _ := json.Marshal(map[string]interface{}{
+		"port": cfg.Listener.Port,
+	})
 
-	log.Printf("HTTP Listener starting on port %s", cfg.Listener.Port)
-	if err := http.ListenAndServe(cfg.Listener.Port, nil); err != nil {
-		log.Fatalf("Failed to start HTTP listener: %v", err)
+	// Start the control channel
+	common.StartControlChannel(&cfg, "HTTP", string(configJSON), handleTeamServerCommand)
+
+	// Start the HTTP server initially
+	startServer()
+
+	// Block forever, allowing the control channel and server goroutine to run
+	select {}
+}
+
+func handleTeamServerCommand(cmd *bridge.ListenerCommand) {
+	log.Printf("Received command from TeamServer: Action=%s", cmd.Action)
+
+	switch cmd.Action {
+	case bridge.ListenerCommand_START:
+		startServer()
+	case bridge.ListenerCommand_STOP:
+		stopServer()
+	case bridge.ListenerCommand_RESTART:
+		stopServer()
+		// Give it a moment to release the port
+		time.Sleep(1 * time.Second)
+		startServer()
+	case bridge.ListenerCommand_EXIT:
+		log.Println("Received EXIT command. Shutting down listener process...")
+		stopServer()
+		os.Exit(0)
+	case bridge.ListenerCommand_UPDATE_CONFIG:
+		log.Println("Config update not fully implemented yet.")
 	}
+}
+
+func startServer() {
+	serverMu.Lock()
+	defer serverMu.Unlock()
+
+	if httpServer != nil {
+		log.Println("Server is already running.")
+		return
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/handshake", handshakeHandler)
+	mux.HandleFunc("/stage", stageHandler)
+	mux.HandleFunc("/checkin", checkinHandler)
+	mux.HandleFunc("/output", outputHandler)
+	mux.HandleFunc("/chunk", chunkHandler)
+
+	httpServer = &http.Server{
+		Addr:    cfg.Listener.Port,
+		Handler: mux,
+	}
+
+	go func() {
+		log.Printf("HTTP Listener starting on port %s", cfg.Listener.Port)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP Listener failed: %v", err)
+			// Ensure state is cleared if start fails
+			serverMu.Lock()
+			httpServer = nil
+			serverMu.Unlock()
+		}
+	}()
+}
+
+func stopServer() {
+	serverMu.Lock()
+	defer serverMu.Unlock()
+
+	if httpServer == nil {
+		log.Println("Server is not running.")
+		return
+	}
+
+	log.Println("Stopping HTTP Listener...")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := httpServer.Shutdown(ctx); err != nil {
+		log.Printf("Error shutting down server: %v", err)
+	}
+	httpServer = nil
+	log.Println("HTTP Listener stopped.")
 }
 
 func generateDefaultConfig(path string) error {
@@ -112,17 +198,41 @@ func generateDefaultConfig(path string) error {
 }
 
 func loadPrivateKey() {
-	keyData, err := os.ReadFile(cfg.Certs.PrivateKey)
+	// First, check if RSA private key exists. If not, generate.
+	rsaPrivateKeyPath := cfg.Certs.PrivateKey
+	rsaPublicKeyPath := filepath.Join(filepath.Dir(rsaPrivateKeyPath), "listener.pub")
+
+	if _, err := os.Stat(rsaPrivateKeyPath); os.IsNotExist(err) {
+		log.Println("RSA private key not found. Generating new RSA key pair for E2E encryption...")
+		privPEM, pubPEM, genErr := pki.GenerateRSAKeyPair()
+		if genErr != nil {
+			log.Fatalf("Failed to generate RSA key pair: %v", genErr)
+		}
+
+		if err := os.MkdirAll(filepath.Dir(rsaPrivateKeyPath), 0755); err != nil {
+			log.Fatalf("Failed to create certs directory: %v", err)
+		}
+		if err := pki.SavePEMFile(rsaPrivateKeyPath, privPEM, 0600); err != nil {
+			log.Fatalf("Failed to save RSA private key: %v", err)
+		}
+		if err := pki.SavePEMFile(rsaPublicKeyPath, pubPEM, 0644); err != nil {
+			log.Fatalf("Failed to save RSA public key: %v", err)
+		}
+		log.Println("Generated and saved new RSA key pair.")
+	}
+
+	// Now load the private key (either newly generated or existing)
+	keyData, err := os.ReadFile(rsaPrivateKeyPath)
 	if err != nil {
-		log.Fatalf("Failed to read private key file: %v", err)
+		log.Fatalf("Failed to read RSA private key file: %v", err)
 	}
 	block, _ := pem.Decode(keyData)
 	if block == nil {
-		log.Fatal("Failed to decode PEM block containing private key")
+		log.Fatal("Failed to decode PEM block containing RSA private key")
 	}
 	privateKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
-		log.Fatalf("Failed to parse private key: %v", err)
+		log.Fatalf("Failed to parse RSA private key: %v", err)
 	}
 	log.Println("Successfully loaded RSA private key.")
 }
@@ -169,16 +279,31 @@ func stageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var metadata bridge.BeaconMetadata
-	if err := json.Unmarshal(decryptedBody, &metadata); err != nil {
-		http.Error(w, "Invalid metadata format", http.StatusBadRequest)
+	// DEBUG LOGGING
+	log.Printf("DEBUG: Staging Decrypted Body: %s", string(decryptedBody))
+
+	var agentReq bridge.StageBeaconRequest
+	if err := json.Unmarshal(decryptedBody, &agentReq); err != nil {
+		log.Printf("DEBUG: JSON Unmarshal error: %v", err)
+		http.Error(w, "Invalid staging request format", http.StatusBadRequest)
 		return
 	}
+	
+	// DEBUG LOGGING
+	log.Printf("DEBUG: Unmarshaled Metadata: %+v", agentReq.Metadata)
 
 	ctx, cancel := common.CreateAuthenticatedContext(&cfg)
 	defer cancel()
 
-	grpcReq := &bridge.StageBeaconRequest{ListenerName: cfg.Listener.Name, Metadata: &metadata}
+	// Use metadata from agent, but override ListenerName with our own config
+	grpcReq := &bridge.StageBeaconRequest{
+		ListenerName: cfg.Listener.Name, 
+		Metadata:     agentReq.Metadata,
+		// We could also pass remote address from HTTP request here if we wanted
+		RemoteAddr: r.RemoteAddr,
+		Timestamp: agentReq.Timestamp,
+	}
+	
 	grpcRes, err := common.TSClient.StageBeacon(ctx, grpcReq)
 	if err != nil {
 		log.Printf("gRPC StageBeacon failed: %v", err)

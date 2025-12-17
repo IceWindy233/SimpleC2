@@ -33,6 +33,20 @@ func (m *Map) Load(key interface{}) (interface{}, bool) {
 	return val, ok
 }
 
+// LoadOrStore returns the existing value for the key if present.
+// Otherwise, it stores and returns the given value.
+// The loaded result is true if the value was loaded, false if stored.
+func (m *Map) LoadOrStore(key, value interface{}) (actual interface{}, loaded bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	actual, loaded = m.m[key]
+	if loaded {
+		return actual, true
+	}
+	m.m[key] = value
+	return value, false
+}
+
 // Delete deletes the value for a key
 func (m *Map) Delete(key interface{}) {
 	m.mu.Lock()

@@ -22,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import Card from '../components/ui/Card.vue'
 import Table from '../components/ui/Table.vue'
@@ -97,7 +97,7 @@ onMounted(() => {
   webSocketService.addMessageHandler(handleWebSocketMessage)
 })
 
-import { onUnmounted } from 'vue'
+
 onUnmounted(() => {
   webSocketService.removeMessageHandler(handleWebSocketMessage)
 })

@@ -12,6 +12,24 @@ SimpleC2 是一个轻量级、模块化、可扩展的C2框架，其核心设计
 - **gRPC 内部桥接**: Listener 通过一个安全高效的 gRPC 桥接与 TeamServer 进行通信，并采用 mTLS 进行双向认证。
 - **易于扩展**: 无需修改 `TeamServer` 核心代码，即可轻松添加新的 `Listener` 类型 (如 DNS, SMB) 或 `Beacon` 命令。
 
+## 功能更新 (New Features)
+
+SimpleC2 已集成以下实战化攻防功能：
+
+-   **高级系统信息 (Sysinfo)**: 获取详细的主机信息，包括架构、内网 IP 等。
+-   **进程管理 (Process Management)**:
+    -   `ps`: 跨平台进程列表查看。
+    -   `kill`: 指定 PID 结束进程。
+-   **内存执行 (In-Memory Execution)**:
+    -   `shellcode`: 支持在 Windows 平台上无文件落地直接加载和执行 Shellcode。
+-   **网络隧道 (Port Forwarding)**:
+    -   `portfwd`: 基于 HTTP 轮询的 TCP 端口转发隧道，支持内网穿透。
+-   **隐蔽性增强 (Evasion)**:
+    -   **Jitter**: 支持心跳间隔抖动，规避流量特征检测。
+    -   **High Integrity Check**: 准确识别 Beacon 进程权限（Admin/Root）。
+-   **安全性增强**:
+    -   **证书吊销 (Certificate Revocation)**: 删除 Listener 后，其证书将立即失效，防止未授权重连。采用 "Fail Closed" 策略，拒绝任何未在数据库中登记的证书。
+
 ## 构建与运行指南
 
 本文档提供了编译和运行 SimpleC2 框架各个组件的说明。

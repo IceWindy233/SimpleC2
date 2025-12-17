@@ -34,6 +34,11 @@ type DataStore interface {
 	CreateListener(listener *Listener) error
 	DeleteListener(name string) error
 
+	// Certificate methods
+	CreateIssuedCertificate(cert *IssuedCertificate) error
+	RevokeCertificatesByListener(listenerName string) error
+	IsCertificateRevoked(serialNumber string) (bool, error)
+
 	// Session methods
 	CreateSession(session *Session) error
 	GetSession(tokenHash string) (*Session, error)
@@ -74,7 +79,7 @@ func NewDataStore(cfg config.DatabaseConfig) (DataStore, error) {
 	}
 
 	logger.Info("Running database migrations...")
-	if err := db.AutoMigrate(&Beacon{}, &Task{}, &Listener{}, &Session{}); err != nil {
+	if err := db.AutoMigrate(&Beacon{}, &Task{}, &Listener{}, &Session{}, &IssuedCertificate{}); err != nil {
 		return nil, fmt.Errorf("failed to auto-migrate database: %w", err)
 	}
 

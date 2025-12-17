@@ -51,6 +51,7 @@ type Task struct {
 	Arguments string
 	Status    string // e.g., "queued", "dispatched", "completed", "error"
 	Output    string
+	Source    string // e.g., "console", "ui", "api"
 }
 
 // Listener represents a listener configuration in the database.
@@ -59,6 +60,9 @@ type Listener struct {
 	Name   string `gorm:"uniqueIndex;not null"`
 	Type   string // e.g., "http", "dns"
 	Config string `gorm:"type:text"` // Store listener-specific config as a JSON string
+
+	// Runtime status (not persisted)
+	Active bool `gorm:"-" json:"active"`
 }
 
 // Session represents a user session for tracking login state.
@@ -73,4 +77,14 @@ type Session struct {
 	IPAddress string `gorm:"not null;index"` // Client IP address
 	UserAgent string // Client user agent
 	IsActive  bool   `gorm:"default:true;index"` // Whether the session is active
+}
+
+// IssuedCertificate tracks certificates issued to listeners for revocation purposes.
+type IssuedCertificate struct {
+	gorm.Model
+	SerialNumber string     `gorm:"uniqueIndex;not null"` // Certificate Serial Number (decimal string)
+	CommonName   string     `gorm:"index"`
+	ListenerName string     `gorm:"index"`
+	Revoked      bool       `gorm:"default:false;index"`
+	RevokedAt    *time.Time
 }

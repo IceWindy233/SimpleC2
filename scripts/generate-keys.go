@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"flag"
 	"fmt"
 	"log"
 	"math/big"
@@ -27,7 +28,15 @@ type CertConfig struct {
 }
 
 func main() {
-	fmt.Println("--- Generating All Cryptographic Materials ---")
+	devMode := flag.Bool("dev", false, "Generate development keys for listener and agent (Client Certs & RSA Keys)")
+	flag.Parse()
+
+	fmt.Println("--- Generating Cryptographic Materials ---")
+	if *devMode {
+		fmt.Println("Running in DEVELOPMENT MODE: Generating all keys including Listener keys.")
+	} else {
+		fmt.Println("Running in PRODUCTION MODE: Generating only CA and TeamServer keys.")
+	}
 
 	// Define paths
 	teamserverCertDir := "certs/teamserver"
@@ -41,15 +50,17 @@ func main() {
 		}
 	}
 
-	// Part 1: Generate RSA keys for E2E Encryption
-	fmt.Println("\n[1/2] Generating RSA key pair for E2E encryption...")
-	generateRSAKeys(listenerCertDir, agentKeyDir)
+	// Part 1: Generate RSA keys for E2E Encryption (Only in Dev Mode)
+	if *devMode {
+		fmt.Println("\n[Optional] Generating RSA key pair for E2E encryption (Dev Mode)...")
+		generateRSAKeys(listenerCertDir, agentKeyDir)
+	}
 
 	// Part 2: Generate certificates for mTLS
-	fmt.Println("\n[2/2] Generating certificates for mTLS...")
-	generateMTLSCertificates(teamserverCertDir, listenerCertDir)
+	fmt.Println("\nGenerating certificates for mTLS...")
+	generateMTLSCertificates(teamserverCertDir, listenerCertDir, *devMode)
 
-	fmt.Println("\n--- All materials generated successfully! ---")
+	fmt.Println("\n--- Materials generated successfully! ---")
 }
 
 func generateRSAKeys(listenerDir, agentDir string) {
@@ -79,7 +90,7 @@ func generateRSAKeys(listenerDir, agentDir string) {
 	fmt.Printf("  -> Saved agent public key to %s\n", agentPublicKeyPath)
 }
 
-func generateMTLSCertificates(tsDir, listenerDir string) {
+func generateMTLSCertificates(tsDir, listenerDir string, isDev bool) {
 	// 1. Generate CA
 	caKey, caCert, err := generateCertificate(CertConfig{IsCA: true, Host: "SimpleC2 CA"}, nil, nil)
 	if err != nil {
@@ -91,10 +102,14 @@ func generateMTLSCertificates(tsDir, listenerDir string) {
 	savePEMKey(caKeyPath, marshalECPrivateKey(caKey), "EC PRIVATE KEY", 0600)
 	fmt.Println("  -> Generated self-signed CA.")
 
-	// Copy CA cert to listener directory for trust
-	listenerCaCertPath := filepath.Join(listenerDir, "ca.crt")
-	saveCertificate(listenerCaCertPath, caCert.Raw)
-	fmt.Printf("  -> Saved CA certificate to %s and %s\n", caCertPath, listenerCaCertPath)
+	// Copy CA cert to listener directory for trust (Needed even in prod for listener to verify TS? Yes, if we manually copy later)
+	// But in new flow, listener gets ca.crt via ZIP.
+	// For dev mode, we copy it.
+	if isDev {
+		listenerCaCertPath := filepath.Join(listenerDir, "ca.crt")
+		saveCertificate(listenerCaCertPath, caCert.Raw)
+		fmt.Printf("  -> Saved CA certificate to %s\n", listenerCaCertPath)
+	}
 
 	// 2. Generate TeamServer Certificate (Server)
 	serverKey, serverCert, err := generateCertificate(CertConfig{IsServer: true, Host: "localhost"}, caCert, caKey)
@@ -107,16 +122,18 @@ func generateMTLSCertificates(tsDir, listenerDir string) {
 	savePEMKey(serverKeyPath, marshalECPrivateKey(serverKey), "EC PRIVATE KEY", 0600)
 	fmt.Printf("  -> Generated server certificate, signed by CA, saved in %s\n", tsDir)
 
-	// 3. Generate Listener Certificate (Client)
-	clientKey, clientCert, err := generateCertificate(CertConfig{IsClient: true, Host: "SimpleC2 Listener"}, caCert, caKey)
-	if err != nil {
-		log.Fatalf("Failed to generate client certificate: %v", err)
+	// 3. Generate Listener Certificate (Client) - Only in Dev Mode
+	if isDev {
+		clientKey, clientCert, err := generateCertificate(CertConfig{IsClient: true, Host: "SimpleC2 Listener Dev"}, caCert, caKey)
+		if err != nil {
+			log.Fatalf("Failed to generate client certificate: %v", err)
+		}
+		clientCertPath := filepath.Join(listenerDir, "client.crt")
+		clientKeyPath := filepath.Join(listenerDir, "client.key")
+		saveCertificate(clientCertPath, clientCert.Raw)
+		savePEMKey(clientKeyPath, marshalECPrivateKey(clientKey), "EC PRIVATE KEY", 0600)
+		fmt.Printf("  -> Generated client certificate, signed by CA, saved in %s\n", listenerDir)
 	}
-	clientCertPath := filepath.Join(listenerDir, "client.crt")
-	clientKeyPath := filepath.Join(listenerDir, "client.key")
-	saveCertificate(clientCertPath, clientCert.Raw)
-	savePEMKey(clientKeyPath, marshalECPrivateKey(clientKey), "EC PRIVATE KEY", 0600)
-	fmt.Printf("  -> Generated client certificate, signed by CA, saved in %s\n", listenerDir)
 }
 
 // --- Helper Functions ---

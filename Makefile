@@ -84,14 +84,25 @@ $(BEACON_DARWIN_PATH):
 
 .PHONY: generate-keys
 generate-keys:
-	@echo "Generating all cryptographic materials (E2E keys and mTLS certs)..."
+	@echo "Generating production keys (CA & TeamServer)..."
 	@go run ./scripts/generate-keys.go
+
+.PHONY: generate-keys-dev
+generate-keys-dev:
+	@echo "Generating DEVELOPMENT keys (CA, TeamServer, Listener, RSA)..."
+	@go run ./scripts/generate-keys.go -dev
 
 .PHONY: cp-certs
 cp-certs:
-	@echo "Copy certs..."
+	@echo "Copying TeamServer certs..."
+	@mkdir -p ./bin/teamserver/certs
 	@cp -f ./certs/teamserver/* ./bin/teamserver/certs/
-	@cp -f ./certs/listener/* ./bin/listener_http/certs/
+	@# Copy Listener certs ONLY if they exist (Dev mode or manually generated)
+	@if [ -f "./certs/listener/client.crt" ]; then \
+		echo "Copying Listener certs (Dev/Manual Mode)..."; \
+		mkdir -p ./bin/listener_http/certs; \
+		cp -f ./certs/listener/* ./bin/listener_http/certs/; \
+	fi
 
 .PHONY: clean
 clean:

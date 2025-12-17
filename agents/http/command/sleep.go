@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strconv"
 	"time"
 )
 
@@ -13,6 +12,8 @@ const CommandIDSleep uint32 = 5
 
 // SleepInterval 全局 sleep 间隔，供 main.go 使用
 var SleepInterval = 5 * time.Second
+// JitterPercentage 全局 jitter 百分比 (0-99)，供 main.go 使用
+var JitterPercentage = 0 // Default to no jitter
 
 // SleepCommand 实现 sleep 命令
 type SleepCommand struct{}
@@ -29,51 +30,44 @@ func (c *SleepCommand) Name() string {
 	return "sleep"
 }
 
-func (c *SleepCommand) Execute(task *Task) ([]byte, error) {
-	var newSleep int32
+// SleepArgs 定义 sleep 命令的参数结构
+type SleepArgs struct {
+	Sleep  int32 `json:"sleep"`
+	Jitter int32 `json:"jitter"` // Percentage, 0-99
+}
 
-	log.Printf("Sleep task received. TaskID: %s, Arguments length: %d, Arguments raw: %q",
-		task.TaskID, len(task.Arguments), string(task.Arguments))
+func (c *SleepCommand) Execute(task *Task) ([]byte, error) {
+	var args SleepArgs
 
 	if len(task.Arguments) == 0 {
 		return nil, fmt.Errorf("empty sleep arguments")
 	}
 
-	// 尝试解析为 JSON 数字或字符串
-	var sleepValue interface{}
-	if err := json.Unmarshal(task.Arguments, &sleepValue); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %v", err)
-	}
-
-	// 处理数字或字符串格式
-	switch v := sleepValue.(type) {
-	case float64: // JSON 数字: 30
-		newSleep = int32(v)
-	case string: // JSON 字符串: "30"
-		parsed, err := parseInt32(v)
-		if err != nil {
-			return nil, fmt.Errorf("invalid sleep value: %s", v)
+	if err := json.Unmarshal(task.Arguments, &args); err != nil {
+		// If it's not a JSON object, try to parse it as a single integer (old format)
+		var oldSleep int32
+		if err := json.Unmarshal(task.Arguments, &oldSleep); err == nil {
+			args.Sleep = oldSleep
+			args.Jitter = 0 // Default jitter to 0 for old format
+		} else {
+			return nil, fmt.Errorf("invalid sleep arguments: %v", err)
 		}
-		newSleep = parsed
-	default:
-		return nil, fmt.Errorf("unsupported sleep argument type: %T", v)
 	}
 
-	// 验证范围
-	if newSleep < 1 || newSleep > 3600 {
-		return nil, fmt.Errorf("sleep value must be between 1 and 3600 seconds, got %d", newSleep)
+	// 验证 sleep 范围
+	if args.Sleep < 1 || args.Sleep > 3600 {
+		return nil, fmt.Errorf("sleep value must be between 1 and 3600 seconds, got %d", args.Sleep)
 	}
 
-	SleepInterval = time.Duration(newSleep) * time.Second
-	log.Printf("Updated check-in interval to %s", SleepInterval)
-	return []byte(fmt.Sprintf("Sleep interval set to %d seconds", newSleep)), nil
+	// 验证 jitter 范围
+	if args.Jitter < 0 || args.Jitter > 99 {
+		return nil, fmt.Errorf("jitter value must be between 0 and 99 percent, got %d", args.Jitter)
+	}
+
+	SleepInterval = time.Duration(args.Sleep) * time.Second
+	JitterPercentage = int(args.Jitter)
+
+	log.Printf("Updated check-in interval to %s with %d%% jitter", SleepInterval, JitterPercentage)
+	return []byte(fmt.Sprintf("Sleep interval set to %d seconds with %d%% jitter", args.Sleep, args.Jitter)), nil
 }
 
-// parseInt32 解析字符串为 int32
-func parseInt32(s string) (int32, error) {
-	result, err := strconv.ParseInt(s, 10, 32)
-	if err != nil {
-		return 0, err
-	}
-	return int32(result), nil
-}

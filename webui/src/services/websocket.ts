@@ -25,10 +25,11 @@ class WebSocketService {
         }
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        // Use relative path for proxy to handle, or explicit localhost:8080 if needed
-        // Since we set up proxy, we can try relative path but WS proxying might need explicit config
-        // Let's try direct connection to backend port for now as proxying WS can be tricky with simple config
-        const wsUrl = `${protocol}//localhost:8080/api/ws?token=${token}`
+        // Use the current host (which includes port) to support both:
+        // 1. Dev mode via Vite proxy (ws://localhost:5173/api/ws -> ws://localhost:8080/api/ws)
+        // 2. Production mode (ws://server:port/api/ws)
+        const host = window.location.host
+        const wsUrl = `${protocol}//${host}/api/ws?token=${token}`
 
         this.ws = new WebSocket(wsUrl)
 

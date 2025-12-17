@@ -3,27 +3,37 @@
     <div class="header-section">
       <h1>Listeners</h1>
       <Button variant="primary" @click="showCreateModal = true">
-        + New Listener
+        + Generate Certs
       </Button>
     </div>
 
     <Card>
       <Table :columns="columns" :data="listeners" :loading="loading">
-        <template #status="{ value }">
-          <span :class="value === 'Running' ? 'text-success' : 'text-danger'">
-            {{ value }}
+        <template #active="{ value }">
+          <span :class="value ? 'text-success' : 'text-danger'">
+            {{ value ? 'Online' : 'Offline' }}
           </span>
         </template>
         <template #actions="{ row }">
           <div class="actions">
-            <Button variant="ghost" size="sm" @click="stopListener(row)">Stop</Button>
-            <Button variant="ghost" size="sm" class="text-danger" @click="deleteListener(row)">Delete</Button>
+            <Button variant="ghost" size="sm" @click="startListener(row)" title="Start">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            </Button>
+            <Button variant="ghost" size="sm" @click="stopListener(row)" title="Stop">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+            </Button>
+            <Button variant="ghost" size="sm" @click="restartListener(row)" title="Restart">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            </Button>
+            <Button variant="ghost" size="sm" class="text-danger" @click="deleteListener(row)" title="Delete">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </Button>
           </div>
         </template>
       </Table>
     </Card>
 
-    <Modal v-model="showCreateModal" title="Create Listener">
+    <Modal v-model="showCreateModal" title="Generate mTLS Certificates">
       <div class="form-stack">
         <Input label="Name" v-model="newListener.name" placeholder="e.g. HTTP-8080" />
         <Input label="Port" v-model="newListener.port" type="number" placeholder="8080" />
@@ -31,7 +41,7 @@
       </div>
       <template #footer>
         <Button variant="ghost" @click="showCreateModal = false">Cancel</Button>
-        <Button variant="primary" @click="createListener">Create</Button>
+        <Button variant="primary" @click="createListener">Generate & Download</Button>
       </template>
     </Modal>
   </div>
@@ -54,16 +64,15 @@ const showCreateModal = ref(false)
 const columns = [
   { key: 'Name', label: 'Name' },
   { key: 'Type', label: 'Type' },
-  // Port is inside Config JSON string, might need parsing or backend adjustment
-  // For now, let's just show Name and Type as returned by backend
-  { key: 'actions', label: 'Actions', width: '150px' }
+  { key: 'active', label: 'Status' },
+  { key: 'actions', label: 'Actions', width: '200px' }
 ]
 
 const listeners = ref<any[]>([])
 
 const newListener = ref({
   name: '',
-  port: '',
+  port: '8888',
   type: 'HTTP'
 })
 
@@ -82,30 +91,67 @@ const fetchListeners = async () => {
 const createListener = async () => {
   loading.value = true
   try {
-    // Construct config JSON
-    const config = JSON.stringify({ port: Number(newListener.value.port) })
+    // Default to 8888 if empty
+    const portVal = newListener.value.port ? Number(newListener.value.port) : 8888
     
-    await api.post('/listeners', {
+    // Construct config JSON
+    const config = JSON.stringify({ port: portVal })
+    
+    // Request with responseType 'blob' to handle zip download
+    const response = await api.post('/listeners', {
       name: newListener.value.name,
       type: newListener.value.type,
       config
+    }, {
+      responseType: 'blob'
     })
     
-    toast.success('Listener created successfully')
+    // Trigger download
+    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `listener_certs_${newListener.value.name}.zip`)
+    document.body.appendChild(link)
+    link.click()
+    link.parentNode?.removeChild(link)
+    
+    toast.success('mTLS certificates generated. Please deploy them to your listener.')
     showCreateModal.value = false
-    newListener.value = { name: '', port: '', type: 'HTTP' }
-    fetchListeners()
+    newListener.value = { name: '', port: '8888', type: 'HTTP' }
+    // No need to fetch listeners immediately
   } catch (error: any) {
-    const message = error.response?.data?.message || 'Failed to create listener'
-    toast.error(message)
+    console.error(error)
+    toast.error('Failed to generate listener configuration')
   } finally {
     loading.value = false
   }
 }
 
-const stopListener = (row: any) => {
-  // Backend doesn't have stop endpoint, only delete
-  toast.info(`Stopping listener ${row.Name}...`)
+const startListener = async (row: any) => {
+    try {
+        await api.post(`/listeners/${row.Name}/start`)
+        toast.success(`Started listener ${row.Name}`)
+    } catch (error: any) {
+        toast.error(`Failed to start listener: ${error.response?.data?.error || error.message}`)
+    }
+}
+
+const stopListener = async (row: any) => {
+    try {
+        await api.post(`/listeners/${row.Name}/stop`)
+        toast.success(`Stopped listener ${row.Name}`)
+    } catch (error: any) {
+        toast.error(`Failed to stop listener: ${error.response?.data?.error || error.message}`)
+    }
+}
+
+const restartListener = async (row: any) => {
+    try {
+        await api.post(`/listeners/${row.Name}/restart`)
+        toast.success(`Restarted listener ${row.Name}`)
+    } catch (error: any) {
+        toast.error(`Failed to restart listener: ${error.response?.data?.error || error.message}`)
+    }
 }
 
 const deleteListener = async (row: any) => {
@@ -119,6 +165,7 @@ const deleteListener = async (row: any) => {
     }
   }
 }
+
 
 onMounted(() => {
   fetchListeners()

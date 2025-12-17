@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package bridge;
 
-option go_package = "simplec2/pkg/bridge"; // 根据你的 Go 项目结构调整
+option go_package = "simplec2/pkg/bridge";
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/struct.proto"; // 用于 Value 和 Map
@@ -25,9 +25,36 @@ service TeamServerBridgeService {
     rpc GetBeaconConfig (GetBeaconConfigRequest) returns (GetBeaconConfigResponse);
     // 获取已分配任务的文件分片
     rpc GetTaskedFileChunk (GetTaskedFileChunkRequest) returns (GetTaskedFileChunkResponse);
+
+    // 新增：监听器控制流
+    rpc ListenerControl (stream ListenerStatus) returns (stream ListenerCommand);
   }
   
   // --- 消息定义 ---
+
+  // Listener 上报的状态
+  message ListenerStatus {
+    string listener_name = 1;
+    bool active = 2;          // 当前是否在监听
+    string error_message = 3; // 如果出错，通过这里上报
+    int32 active_beacons = 4; // 当前连接的 Beacon 数量（用于监控面板）
+    string type = 5;          // Listener 类型 (e.g. "HTTP")
+    string config_json = 6;   // 当前配置快照
+  }
+
+  // TS 下发的指令
+  message ListenerCommand {
+    string request_id = 1;
+    enum Action {
+      START = 0;
+      STOP = 1;
+      RESTART = 2;
+      UPDATE_CONFIG = 3; // 热更新配置
+      EXIT = 4;          // 进程退出
+    }
+    Action action = 2;
+    string config_json = 3; // 如果是更新配置，携带新配置
+  }
   
   // Beacon 的核心元数据
   message BeaconMetadata {
@@ -66,6 +93,7 @@ service TeamServerBridgeService {
     string listener_name = 2;                 // 处理此请求的 Listener 实例名
     string remote_addr = 3;                   // Beacon 的来源网络地址
     google.protobuf.Timestamp timestamp = 4;  // Listener 接收到请求的时间戳
+    repeated TunnelMessage outgoing_tunnel_data = 5; // Agent发送给TeamServer的隧道数据
     // map<string, google.protobuf.Value> update_metadata = 5; // 可选: 需要更新的元数据字段
   }
   
@@ -80,6 +108,7 @@ service TeamServerBridgeService {
   message CheckInBeaconResponse {
     repeated Task tasks = 1; // 原始未加密任务对象列表
     int32 new_sleep = 2;     // 可选: 新的 sleep 时间 (秒)
+    repeated TunnelMessage incoming_tunnel_data = 3; // TeamServer发送给Agent的隧道数据
   }
   
   // PushOutput 请求
@@ -154,4 +183,21 @@ service TeamServerBridgeService {
   message GetTaskedFileChunkResponse {
     bytes chunk_data = 1;     // 分片的二进制数据
   }
+
+// TunnelMessage 隧道数据消息
+message TunnelMessage {
+    string tunnel_id = 1;
+    bytes data = 2;
+    bool is_fin = 3;     // End of stream/connection close
+    bool is_error = 4;   // Indicates an error occurred
+    string error_msg = 5; // Error message
+    string target = 6;    // Target address for TunnelCommandStart (only sent by TeamServer)
+    enum CommandType {
+        START = 0;
+        DATA = 1;
+        STOP = 2;
+    }
+    CommandType command_type = 7;
+}
+
   

@@ -6,9 +6,6 @@
         <h1>Tasking: {{ beaconId }}</h1>
       </div>
       <div class="header-actions">
-        <div class="action-buttons">
-          <Button variant="danger" size="sm" @click="deleteBeacon">Delete</Button>
-        </div>
         <div class="tabs">
           <button 
             :class="['tab-btn', { active: activeTab === 'console' }]" 
@@ -17,15 +14,28 @@
             Console
           </button>
           <button 
+            :class="['tab-btn', { active: activeTab === 'processes' }]" 
+            @click="activeTab = 'processes'"
+          >
+            Processes
+          </button>
+          <button 
             :class="['tab-btn', { active: activeTab === 'files' }]" 
             @click="activeTab = 'files'"
           >
             Files
           </button>
+          <button 
+            :class="['tab-btn', { active: activeTab === 'tunnels' }]" 
+            @click="activeTab = 'tunnels'"
+          >
+            Tunnels
+          </button>
         </div>
         <div class="status-badge">
           <span class="dot" :class="{ online: beacon?.Status === 'active' }"></span> {{ beacon?.Status === 'active' ? 'Online' : 'Offline' }}
         </div>
+        <Button variant="warning" size="sm" @click="showShellcodeModal = true">Inject Shellcode</Button>
       </div>
     </div>
 
@@ -34,7 +44,7 @@
         <div v-show="activeTab === 'console'" class="console-area">
           <Card class="console-card">
             <div class="console-output" ref="consoleOutput">
-              <div v-for="log in logs" :key="log.id" class="log-entry">
+              <div v-for="log in consoleLogs" :key="log.id" class="log-entry">
                 <div class="log-meta">
                   <span class="log-time">{{ log.time }}</span>
                   <span :class="['log-type', `type-${log.type}`]">{{ log.type }}</span>
@@ -59,19 +69,31 @@
               <div class="prompt">beacon></div>
               <input 
                 v-model="command" 
-                @keyup.enter="sendCommand"
+                @keyup.enter="sendConsoleCommand"
                 type="text" 
                 placeholder="Enter command..." 
                 autofocus
               />
-              <Button variant="primary" size="sm" @click="sendCommand" :disabled="!command">Send</Button>
+              <Button variant="primary" size="sm" @click="sendConsoleCommand" :disabled="!command">Send</Button>
             </div>
           </Card>
         </div>
         
+        <div v-if="activeTab === 'processes'" class="processes-area">
+          <Card class="processes-card">
+            <ProcessBrowser :beacon-id="beaconId" :logs="logs" @send-command="handleChildCommand" />
+          </Card>
+        </div>
+
         <div v-if="activeTab === 'files'" class="files-area">
           <Card class="files-card">
             <FileBrowser :beacon-id="beaconId" />
+          </Card>
+        </div>
+
+        <div v-if="activeTab === 'tunnels'" class="tunnels-area">
+          <Card class="tunnels-card">
+            <TunnelManager :beacon-id="beaconId" />
           </Card>
         </div>
       </div>
@@ -110,15 +132,36 @@
               <label>Last Check-in</label>
               <span>{{ beacon ? new Date(beacon.LastSeen).toLocaleTimeString() : '-' }}</span>
             </div>
+            <div class="info-item full-width">
+               <Button variant="danger" size="sm" @click="deleteBeacon" block>Delete Beacon</Button>
+            </div>
           </div>
         </Card>
+      </div>
+    </div>
+
+    <!-- Shellcode Injection Modal -->
+    <div v-if="showShellcodeModal" class="modal-overlay">
+      <div class="modal">
+        <h3>Inject Shellcode</h3>
+        <p class="modal-desc">Select a raw shellcode file (.bin) to inject into the beacon process.</p>
+        <div class="form-group">
+          <input type="file" @change="handleShellcodeFileSelect" />
+        </div>
+        <div v-if="shellcodeFile" class="file-info">
+          Selected: {{ shellcodeFile.name }} ({{ shellcodeFile.size }} bytes)
+        </div>
+        <div class="modal-actions">
+          <Button variant="ghost" @click="showShellcodeModal = false">Cancel</Button>
+          <Button variant="danger" @click="injectShellcode" :disabled="!shellcodeFile">Inject</Button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Card from '../components/ui/Card.vue'
 import Button from '../components/ui/Button.vue'
@@ -126,6 +169,8 @@ import { useToastStore } from '../stores/toast'
 import api from '../services/api'
 import { webSocketService } from '../services/websocket'
 import FileBrowser from '../components/FileBrowser.vue'
+import ProcessBrowser from '../components/ProcessBrowser.vue'
+import TunnelManager from '../components/TunnelManager.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -138,6 +183,23 @@ const consoleOutput = ref<HTMLElement | null>(null)
 const beacon = ref<any>(null)
 const logs = ref<any[]>([])
 const screenshotUrls = ref<Record<string, string>>({}) // 存储已加载的截图 blob URL
+
+// Computed property to filter logs for the console view
+const consoleLogs = computed(() => {
+  return logs.value.filter(log => {
+    // 1. Filter out specific internal commands regardless of source (safety net)
+    if (['ps', 'browse'].includes(log.command)) return false
+    
+    // 2. Filter by source: Only show logs from 'console' or undefined (legacy/unknown)
+    // If explicit source is provided and it's NOT console, hide it.
+    if (log.source && log.source !== 'console') return false
+    
+    return true
+  })
+})
+
+const showShellcodeModal = ref(false)
+const shellcodeFile = ref<File | null>(null)
 
 const fetchBeacon = async () => {
   try {
@@ -166,12 +228,15 @@ const fetchTasks = async () => {
         timestamp: createdAt.getTime(),
         time: createdAt.toLocaleTimeString(),
         type: 'input',
-        content: `${task.Command} ${task.Arguments || ''}`
+        content: `${task.Command} ${task.Arguments || ''}`,
+        source: task.Source
       })
       
       // Output log (if completed)
       if (task.Status === 'completed' && task.Output) {
         const updatedAt = new Date(task.UpdatedAt)
+        let content = task.Output
+        
         entries.push({
           id: task.TaskID + '_out',
           taskId: task.TaskID,
@@ -179,7 +244,8 @@ const fetchTasks = async () => {
           timestamp: updatedAt.getTime(),
           time: updatedAt.toLocaleTimeString(),
           type: 'output',
-          content: task.Output
+          content: content,
+          source: task.Source
         })
       }
       return entries
@@ -225,13 +291,23 @@ const downloadLoot = async (filename: string) => {
   }
 }
 
-const sendCommand = async () => {
+const sendConsoleCommand = () => {
   if (!command.value.trim()) return
-
   const cmdParts = command.value.trim().split(' ')
-  const cmd = cmdParts[0]
-  const args = cmdParts.slice(1).join(' ')
+  const cmd = cmdParts[0] || ''
+  const args = cmdParts.slice(1).join(' ') || ''
+  submitTask(cmd, args, 'console')
+  command.value = ''
+}
 
+const handleChildCommand = (fullCommand: string) => {
+  const cmdParts = fullCommand.trim().split(' ')
+  const cmd = cmdParts[0] || ''
+  const args = cmdParts.slice(1).join(' ') || ''
+  submitTask(cmd, args, 'ui')
+}
+
+const submitTask = async (cmd: string, args: string, source: string = 'console') => {
   // Add input log immediately for UX
   const now = new Date()
   logs.value.push({
@@ -240,21 +316,20 @@ const sendCommand = async () => {
     time: now.toLocaleTimeString(),
     type: 'input',
     command: cmd,
-    content: command.value
+    content: `${cmd} ${args}`,
+    source: source // Track source locally immediately
   })
 
-  command.value = ''
   scrollToBottom()
 
   try {
     await api.post(`/beacons/${beaconId}/tasks`, {
       command: cmd,
-      arguments: args
+      arguments: args,
+      source: source
     })
-    // Task queued event will come via WS, but we can just wait for it
   } catch (error: any) {
     toast.error('Failed to send command')
-    // Remove optimistic log?
   }
 }
 
@@ -269,9 +344,41 @@ const deleteBeacon = async () => {
   }
 }
 
-const openScreenshot = (path: string) => {
-  // 在新标签页打开截图
-  window.open(`/api/loot/${path}`, '_blank')
+// Shellcode Injection
+const handleShellcodeFileSelect = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  if (target.files && target.files.length > 0) {
+    shellcodeFile.value = target.files[0] || null
+  }
+}
+
+const injectShellcode = async () => {
+  if (!shellcodeFile.value) return
+
+  const reader = new FileReader()
+  reader.onload = async () => {
+    // reader.result is ArrayBuffer
+    const arrayBuffer = reader.result as ArrayBuffer
+    const bytes = new Uint8Array(arrayBuffer)
+    
+    // Convert to Base64
+    let binary = ''
+    const len = bytes.byteLength
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]!)
+    }
+    const base64String = window.btoa(binary)
+
+    try {
+        await submitTask('shellcode', base64String, 'ui')
+        toast.success(`Queued shellcode injection (${len} bytes)`)
+        showShellcodeModal.value = false
+        shellcodeFile.value = null
+    } catch (e) {
+        toast.error('Failed to queue shellcode task')
+    }
+  }
+  reader.readAsArrayBuffer(shellcodeFile.value)
 }
 
 const loadScreenshot = async (logId: string, path: string) => {
@@ -336,6 +443,8 @@ const handleWebSocketMessage = (message: any) => {
   if (message.type === 'TASK_OUTPUT' && message.payload.BeaconID === beaconId) {
     const task = message.payload
     const updatedAt = new Date(task.UpdatedAt || Date.now()) // Fallback if UpdatedAt is missing in event
+    
+    let content = task.Output
     logs.value.push({
       id: task.TaskID + '_out',
       taskId: task.TaskID,
@@ -343,10 +452,9 @@ const handleWebSocketMessage = (message: any) => {
       timestamp: updatedAt.getTime(),
       time: updatedAt.toLocaleTimeString(),
       type: 'output',
-      content: task.Output
+      content: content,
+      source: task.Source
     })
-    // Re-sort logs to ensure correct order if messages arrive out of order (though push is usually fine for real-time)
-    // logs.value.sort((a, b) => a.timestamp - b.timestamp) 
     scrollToBottom()
   } else if (message.type === 'BEACON_CHECKIN' && message.payload.beacon_id === beaconId) {
     if (beacon.value) {
@@ -359,8 +467,6 @@ const handleWebSocketMessage = (message: any) => {
     }
   }
 }
-
-import { watch } from 'vue'
 
 // 监听 logs 变化，自动加载截图
 watch(logs, (newLogs) => {
@@ -378,7 +484,7 @@ onMounted(() => {
   webSocketService.addMessageHandler(handleWebSocketMessage)
 })
 
-import { onUnmounted } from 'vue'
+
 onUnmounted(() => {
   webSocketService.removeMessageHandler(handleWebSocketMessage)
 })
@@ -475,14 +581,14 @@ onUnmounted(() => {
   min-height: 0;
 }
 
-.console-area, .files-area {
+.console-area, .files-area, .processes-area, .tunnels-area {
   flex: 1;
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
-.console-card, .files-card {
+.console-card, .files-card, .processes-card, .tunnels-card {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -631,5 +737,46 @@ onUnmounted(() => {
 .status-indicator.online {
   background-color: var(--color-success);
   box-shadow: 0 0 8px var(--color-success);
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--color-bg-primary);
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-lg);
+  width: 400px;
+  border: 1px solid var(--color-border);
+}
+
+.modal-desc {
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: var(--spacing-md);
+}
+
+.form-group {
+  margin: var(--spacing-md) 0;
+}
+
+.file-info {
+  margin: var(--spacing-sm) 0;
+  font-size: 0.85rem;
+  color: var(--color-primary);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
 }
 </style>
