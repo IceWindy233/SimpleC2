@@ -35,6 +35,11 @@ const (
 	// Client events
 	ClientConnected     EventType = "CLIENT_CONNECTED"
 	ClientAuthenticated EventType = "CLIENT_AUTHENTICATED"
+
+	// Tunnel events
+	TunnelStarted       EventType = "TUNNEL_STARTED"
+	TunnelStopped       EventType = "TUNNEL_STOPPED"
+	TunnelStatusUpdated EventType = "TUNNEL_STATUS_UPDATED"
 )
 
 // Event represents a system event that can be published and subscribed to.

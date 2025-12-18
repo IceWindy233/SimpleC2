@@ -262,35 +262,49 @@ func (s *server) PushBeaconOutput(ctx context.Context, in *bridge.PushBeaconOutp
 	// After updating the task, check for side effects
 	if task.Command == "sleep" {
 		logger.Infof("Processing side effects for sleep task %s. Arguments: '%s'", task.TaskID, task.Arguments)
-		if newSleep, err := strconv.Atoi(strings.TrimSpace(task.Arguments)); err == nil {
-			beacon, err := s.Store.GetBeacon(task.BeaconID)
+		args := strings.Fields(strings.TrimSpace(task.Arguments))
+		if len(args) > 0 {
+			newSleep, err := strconv.Atoi(args[0])
 			if err != nil {
-				logger.Errorf("Error getting beacon %s for sleep update: %v", task.BeaconID, err)
+				logger.Errorf("Failed to parse sleep argument '%s' as int: %v", args[0], err)
 			} else {
-				beacon.Sleep = newSleep
-				if err := s.Store.UpdateBeacon(beacon); err != nil {
-					logger.Errorf("Error updating beacon %s sleep interval: %v", task.BeaconID, err)
-				} else {
-					logger.Infof("Successfully updated beacon %s sleep to %d", beacon.BeaconID, beacon.Sleep)
-					// Broadcast the beacon metadata update event
-					beaconUpdateEvent := struct {
-						Type    string      `json:"type"`
-						Payload interface{} `json:"payload"`
-					}{
-						Type:    "BEACON_METADATA_UPDATED",
-						Payload: beacon,
-					}
-					beaconEventBytes, err := json.Marshal(beaconUpdateEvent)
-					if err != nil {
-						logger.Errorf("Error marshalling beacon update event: %v", err)
+				newJitter := 0
+				if len(args) > 1 {
+					if j, err := strconv.Atoi(args[1]); err == nil {
+						newJitter = j
 					} else {
-						s.Hub.Broadcast(beaconEventBytes)
-						logger.Infof("Broadcasted BEACON_METADATA_UPDATED event for %s", beacon.BeaconID)
+						logger.Warnf("Failed to parse jitter argument '%s' as int: %v", args[1], err)
+					}
+				}
+
+				beacon, err := s.Store.GetBeacon(task.BeaconID)
+				if err != nil {
+					logger.Errorf("Error getting beacon %s for sleep update: %v", task.BeaconID, err)
+				} else {
+					beacon.Sleep = newSleep
+					beacon.Jitter = newJitter
+					if err := s.Store.UpdateBeacon(beacon); err != nil {
+						logger.Errorf("Error updating beacon %s sleep interval: %v", task.BeaconID, err)
+					} else {
+						logger.Infof("Successfully updated beacon %s sleep to %d (jitter: %d%%)", beacon.BeaconID, beacon.Sleep, beacon.Jitter)
+						// Broadcast the beacon metadata update event
+						beaconUpdateEvent := struct {
+							Type    string      `json:"type"`
+							Payload interface{} `json:"payload"`
+						}{
+							Type:    "BEACON_METADATA_UPDATED",
+							Payload: beacon,
+						}
+						beaconEventBytes, err := json.Marshal(beaconUpdateEvent)
+						if err != nil {
+							logger.Errorf("Error marshalling beacon update event: %v", err)
+						} else {
+							s.Hub.Broadcast(beaconEventBytes)
+							logger.Infof("Broadcasted BEACON_METADATA_UPDATED event for %s", beacon.BeaconID)
+						}
 					}
 				}
 			}
-		} else {
-			logger.Errorf("Failed to parse sleep argument '%s' as int: %v", task.Arguments, err)
 		}
 	}
 

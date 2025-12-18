@@ -100,3 +100,45 @@ func (a *API) DeleteBeacon(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
+// UpdateBeaconRequest defines the request body for updating a beacon.
+type UpdateBeaconRequest struct {
+	Note string `json:"note"`
+}
+
+// UpdateBeacon handles the API request to update a beacon's metadata.
+func (a *API) UpdateBeacon(c *gin.Context) {
+	beaconID := c.Param("beacon_id")
+	var req UpdateBeaconRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Respond(c, http.StatusBadRequest, NewErrorResponse(http.StatusBadRequest, "Invalid request body", err.Error()))
+		return
+	}
+
+	updates := map[string]interface{}{
+		"note": req.Note,
+	}
+
+	err := a.BeaconService.UpdateBeaconMetadata(c.Request.Context(), beaconID, updates)
+	if err != nil {
+		Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to update beacon", err.Error()))
+		return
+	}
+
+	// Fetch updated beacon to broadcast change
+	beacon, err := a.BeaconService.GetBeacon(c.Request.Context(), beaconID)
+	if err == nil {
+		event := struct {
+			Type    string      `json:"type"`
+			Payload interface{} `json:"payload"`
+		}{
+			Type:    "BEACON_METADATA_UPDATED",
+			Payload: beacon,
+		}
+		if eventBytes, err := json.Marshal(event); err == nil && a.Hub != nil {
+			a.Hub.Broadcast(eventBytes)
+		}
+	}
+
+	Respond(c, http.StatusOK, NewSuccessResponse(beacon, nil))
+}

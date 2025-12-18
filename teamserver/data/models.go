@@ -14,24 +14,26 @@ type Beacon struct {
 	DeletedAt     gorm.DeletedAt `gorm:"index"`
 
 	// Beacon-specific fields
-	BeaconID      string    `gorm:"uniqueIndex;not null"`
-	SessionKey    []byte
-	Listener      string
-	RemoteAddr    string
-	Status        string `gorm:"default:'active'"` // e.g., "active", "inactive", "lost", "exiting"
-	FirstSeen     time.Time
-	LastSeen      time.Time
-	Sleep         int
+	BeaconID      string    `gorm:"uniqueIndex;not null" json:"BeaconID"`
+	SessionKey    []byte    `json:"-"`
+	Listener      string    `json:"Listener"`
+	RemoteAddr    string    `json:"RemoteAddr"`
+	Status        string    `gorm:"default:'active'" json:"Status"`
+	FirstSeen     time.Time `json:"FirstSeen"`
+	LastSeen      time.Time `json:"LastSeen"`
+	Sleep         int       `json:"Sleep"`
+	Jitter        int       `json:"Jitter"`
 
 	// Metadata from the beacon
-	OS              string
-	Arch            string
-	Username        string
-	Hostname        string
-	InternalIP      string
-	ProcessName     string
-	PID             int32
-	IsHighIntegrity bool
+	OS              string `json:"OS"`
+	Arch            string `json:"Arch"`
+	Username        string `json:"Username"`
+	Hostname        string `json:"Hostname"`
+	InternalIP      string `json:"InternalIP"`
+	ProcessName     string `json:"ProcessName"`
+	PID             int32  `json:"PID"`
+	IsHighIntegrity bool   `json:"IsHighIntegrity"`
+	Note            string `json:"Note"` // User notes for the beacon
 }
 
 // BeaconQuery defines parameters for querying beacons.

@@ -6,6 +6,7 @@ export interface Beacon {
     FirstSeen: string
     LastSeen: string
     Sleep: number
+    Jitter: number
     OS: string
     Arch: string
     Username: string
@@ -14,6 +15,7 @@ export interface Beacon {
     ProcessName: string
     PID: number
     IsHighIntegrity: boolean
+    Note: string
 }
 
 export interface Tunnel {

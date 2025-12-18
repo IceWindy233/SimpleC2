@@ -300,6 +300,29 @@ func (a *API) StartListener(c *gin.Context) {
 		Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to start listener", err.Error()))
 		return
 	}
+
+	// Get updated listener info for broadcasting
+	listener, err := a.ListenerService.GetListener(c.Request.Context(), name)
+	if err != nil {
+		logger.Errorf("Failed to get listener %s after start for broadcasting: %v", name, err)
+	} else {
+		// Broadcast LISTENER_STARTED event
+		event := struct {
+			Type    string      `json:"type"`
+			Payload interface{} `json:"payload"`
+		}{
+			Type:    "LISTENER_STARTED",
+			Payload: listener,
+		}
+		eventBytes, err := json.Marshal(event)
+		if err == nil {
+			if a.Hub != nil {
+				a.Hub.Broadcast(eventBytes)
+				logger.Debugf("Broadcasted LISTENER_STARTED event for %s", name)
+			}
+		}
+	}
+
 	Respond(c, http.StatusOK, NewSuccessResponse(gin.H{"message": "Start command sent"}, nil))
 }
 
@@ -310,6 +333,29 @@ func (a *API) StopListener(c *gin.Context) {
 		Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to stop listener", err.Error()))
 		return
 	}
+
+	// Get updated listener info for broadcasting
+	listener, err := a.ListenerService.GetListener(c.Request.Context(), name)
+	if err != nil {
+		logger.Errorf("Failed to get listener %s after stop for broadcasting: %v", name, err)
+	} else {
+		// Broadcast LISTENER_STOPPED event
+		event := struct {
+			Type    string      `json:"type"`
+			Payload interface{} `json:"payload"`
+		}{
+			Type:    "LISTENER_STOPPED",
+			Payload: listener,
+		}
+		eventBytes, err := json.Marshal(event)
+		if err == nil {
+			if a.Hub != nil {
+				a.Hub.Broadcast(eventBytes)
+				logger.Debugf("Broadcasted LISTENER_STOPPED event for %s", name)
+			}
+		}
+	}
+
 	Respond(c, http.StatusOK, NewSuccessResponse(gin.H{"message": "Stop command sent"}, nil))
 }
 
@@ -320,5 +366,28 @@ func (a *API) RestartListener(c *gin.Context) {
 		Respond(c, http.StatusInternalServerError, NewErrorResponse(http.StatusInternalServerError, "Failed to restart listener", err.Error()))
 		return
 	}
+
+	// Get updated listener info for broadcasting
+	listener, err := a.ListenerService.GetListener(c.Request.Context(), name)
+	if err != nil {
+		logger.Errorf("Failed to get listener %s after restart for broadcasting: %v", name, err)
+	} else {
+		// Broadcast LISTENER_STARTED event
+		event := struct {
+			Type    string      `json:"type"`
+			Payload interface{} `json:"payload"`
+		}{
+			Type:    "LISTENER_STARTED",
+			Payload: listener,
+		}
+		eventBytes, err := json.Marshal(event)
+		if err == nil {
+			if a.Hub != nil {
+				a.Hub.Broadcast(eventBytes)
+				logger.Debugf("Broadcasted LISTENER_STARTED event for %s", name)
+			}
+		}
+	}
+
 	Respond(c, http.StatusOK, NewSuccessResponse(gin.H{"message": "Restart command sent"}, nil))
 }

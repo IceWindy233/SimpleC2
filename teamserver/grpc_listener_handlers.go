@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -38,7 +39,42 @@ func (s *server) ListenerControl(stream bridge.TeamServerBridgeService_ListenerC
 
 	// 2. 注册连接
 	s.ListenerService.RegisterConnection(listenerName, stream)
-	defer s.ListenerService.UnregisterConnection(listenerName)
+	
+	// Broadcast LISTENER_STARTED event
+	if listener, err := s.ListenerService.GetListener(ctx, listenerName); err == nil {
+		event := struct {
+			Type    string      `json:"type"`
+			Payload interface{} `json:"payload"`
+		}{
+			Type:    "LISTENER_STARTED",
+			Payload: listener,
+		}
+		if eventBytes, err := json.Marshal(event); err == nil {
+			s.Hub.Broadcast(eventBytes)
+		}
+	}
+
+	defer func() {
+		s.ListenerService.UnregisterConnection(listenerName)
+		logger.Infof("Listener '%s' disconnected/unregistered.", listenerName)
+		
+		// Broadcast LISTENER_STOPPED event
+		if listener, err := s.ListenerService.GetListener(context.Background(), listenerName); err == nil {
+			// GetListener checks connection map. Since we just unregistered (or are about to?), 
+			// Wait, UnregisterConnection removes it from map.
+			// So GetListener will return Active=false.
+			event := struct {
+				Type    string      `json:"type"`
+				Payload interface{} `json:"payload"`
+			}{
+				Type:    "LISTENER_STOPPED",
+				Payload: listener,
+			}
+			if eventBytes, err := json.Marshal(event); err == nil {
+				s.Hub.Broadcast(eventBytes)
+			}
+		}
+	}()
 
 	// 3. 循环接收状态更新
 	for {

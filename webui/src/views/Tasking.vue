@@ -3,7 +3,7 @@
     <div class="header-section">
       <div class="title-group">
         <Button variant="ghost" size="sm" @click="$router.push('/beacons')">← Back</Button>
-        <h1>Tasking: {{ beaconId }}</h1>
+        <h1>Tasking: <span :title="beaconId">{{ beaconId.split('-')[0] }}</span></h1>
       </div>
       <div class="header-actions">
         <div class="tabs">
@@ -24,12 +24,6 @@
             @click="activeTab = 'files'"
           >
             Files
-          </button>
-          <button 
-            :class="['tab-btn', { active: activeTab === 'tunnels' }]" 
-            @click="activeTab = 'tunnels'"
-          >
-            Tunnels
           </button>
         </div>
         <div class="status-badge">
@@ -90,12 +84,6 @@
             <FileBrowser :beacon-id="beaconId" />
           </Card>
         </div>
-
-        <div v-if="activeTab === 'tunnels'" class="tunnels-area">
-          <Card class="tunnels-card">
-            <TunnelManager :beacon-id="beaconId" />
-          </Card>
-        </div>
       </div>
 
       <div class="info-area">
@@ -126,11 +114,11 @@
             </div>
             <div class="info-item">
               <label>Sleep</label>
-              <span>{{ beacon?.Sleep || 0 }}s</span>
+              <span>{{ beacon?.Sleep || 0 }}s ({{ beacon?.Jitter || 0 }}%)</span>
             </div>
             <div class="info-item">
-              <label>Last Check-in</label>
-              <span>{{ beacon ? new Date(beacon.LastSeen).toLocaleTimeString() : '-' }}</span>
+              <label>Last</label>
+              <span>{{ formatTimeAgo(beacon?.LastSeen) }}</span>
             </div>
             <div class="info-item full-width">
                <Button variant="danger" size="sm" @click="deleteBeacon" block>Delete Beacon</Button>
@@ -170,7 +158,6 @@ import api from '../services/api'
 import { webSocketService } from '../services/websocket'
 import FileBrowser from '../components/FileBrowser.vue'
 import ProcessBrowser from '../components/ProcessBrowser.vue'
-import TunnelManager from '../components/TunnelManager.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -200,6 +187,20 @@ const consoleLogs = computed(() => {
 
 const showShellcodeModal = ref(false)
 const shellcodeFile = ref<File | null>(null)
+const now = ref(Date.now())
+let timer: any = null
+
+const formatTimeAgo = (timestamp: string | number) => {
+  if (!timestamp) return '-'
+  const date = new Date(timestamp)
+  const diffMs = now.value - date.getTime()
+  const diffSec = Math.max(0, Math.floor(diffMs / 1000))
+
+  if (diffSec < 60) return `${diffSec}s ago`
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`
+  return `${Math.floor(diffSec / 86400)}d ago`
+}
 
 const fetchBeacon = async () => {
   try {
@@ -482,11 +483,15 @@ onMounted(() => {
   fetchTasks()
   scrollToBottom()
   webSocketService.addMessageHandler(handleWebSocketMessage)
+  timer = setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
 })
 
 
 onUnmounted(() => {
   webSocketService.removeMessageHandler(handleWebSocketMessage)
+  if (timer) clearInterval(timer)
 })
 </script>
 
@@ -581,14 +586,14 @@ onUnmounted(() => {
   min-height: 0;
 }
 
-.console-area, .files-area, .processes-area, .tunnels-area {
+.console-area, .files-area, .processes-area {
   flex: 1;
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
-.console-card, .files-card, .processes-card, .tunnels-card {
+.console-card, .files-card, .processes-card {
   flex: 1;
   display: flex;
   flex-direction: column;

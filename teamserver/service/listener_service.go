@@ -157,6 +157,15 @@ func (s *listenerService) GetListener(ctx context.Context, name string) (*data.L
 	if err != nil {
 		return nil, fmt.Errorf("failed to get listener: %w", err)
 	}
+
+	s.mu.RLock()
+	if _, ok := s.connections[listener.Name]; ok {
+		listener.Active = true
+	} else {
+		listener.Active = false
+	}
+	s.mu.RUnlock()
+
 	return listener, nil
 }
 

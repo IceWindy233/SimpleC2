@@ -48,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import Card from '../components/ui/Card.vue'
 import Table from '../components/ui/Table.vue'
 import Button from '../components/ui/Button.vue'
@@ -56,6 +56,7 @@ import Modal from '../components/ui/Modal.vue'
 import Input from '../components/ui/Input.vue'
 import { useToastStore } from '../stores/toast'
 import api from '../services/api'
+import { webSocketService } from '../services/websocket'
 
 const toast = useToastStore()
 const loading = ref(false)
@@ -69,6 +70,20 @@ const columns = [
 ]
 
 const listeners = ref<any[]>([])
+
+const handleWebSocketMessage = (message: any) => {
+    if (message.type === 'LISTENER_STARTED' || message.type === 'LISTENER_STOPPED') {
+        const updatedListener = message.payload
+        const index = listeners.value.findIndex(l => l.Name === updatedListener.Name)
+        if (index !== -1) {
+            // Update active status locally
+            listeners.value[index].active = updatedListener.active
+        } else {
+             // Or reload if new/unknown
+             fetchListeners() 
+        }
+    }
+}
 
 const newListener = ref({
   name: '',
@@ -169,6 +184,11 @@ const deleteListener = async (row: any) => {
 
 onMounted(() => {
   fetchListeners()
+  webSocketService.addMessageHandler(handleWebSocketMessage)
+})
+
+onUnmounted(() => {
+  webSocketService.removeMessageHandler(handleWebSocketMessage)
 })
 </script>
 

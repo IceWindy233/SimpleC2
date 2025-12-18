@@ -20,10 +20,8 @@ SimpleC2 已集成以下实战化攻防功能：
 -   **进程管理 (Process Management)**:
     -   `ps`: 跨平台进程列表查看。
     -   `kill`: 指定 PID 结束进程。
--   **内存执行 (In-Memory Execution)**:
+- **内存执行 (In-Memory Execution)**:
     -   `shellcode`: 支持在 Windows 平台上无文件落地直接加载和执行 Shellcode。
--   **网络隧道 (Port Forwarding)**:
-    -   `portfwd`: 基于 HTTP 轮询的 TCP 端口转发隧道，支持内网穿透。
 -   **隐蔽性增强 (Evasion)**:
     -   **Jitter**: 支持心跳间隔抖动，规避流量特征检测。
     -   **High Integrity Check**: 准确识别 Beacon 进程权限（Admin/Root）。

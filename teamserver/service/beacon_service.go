@@ -29,8 +29,11 @@ type BeaconService interface {
 	// ListBeacons retrieves all beacons with optional filtering and pagination.
 	ListBeacons(ctx context.Context, query *ListQuery) ([]data.Beacon, int64, error)
 
-	// SetBeaconSleep updates the sleep interval for a beacon.
-	SetBeaconSleep(ctx context.Context, beaconID string, sleep int) error
+	// SetBeaconSleep updates the sleep interval and jitter for a beacon.
+	SetBeaconSleep(ctx context.Context, beaconID string, sleep int, jitter int) error
+
+	// UpdateBeaconMetadata updates metadata fields (like Note) for a beacon.
+	UpdateBeaconMetadata(ctx context.Context, beaconID string, updates map[string]interface{}) error
 }
 
 // ListQuery defines parameters for paginated and filtered queries.
@@ -240,7 +243,7 @@ func (s *beaconService) calculateStatus(beacon *data.Beacon) {
 }
 
 // SetBeaconSleep updates the sleep interval for a beacon.
-func (s *beaconService) SetBeaconSleep(ctx context.Context, beaconID string, sleep int) error {
+func (s *beaconService) SetBeaconSleep(ctx context.Context, beaconID string, sleep int, jitter int) error {
 	// Get the beacon first to ensure it exists
 	beacon, err := s.store.GetBeacon(beaconID)
 	if err != nil {
@@ -249,8 +252,27 @@ func (s *beaconService) SetBeaconSleep(ctx context.Context, beaconID string, sle
 
 	// Update the sleep value
 	beacon.Sleep = sleep
+	beacon.Jitter = jitter
 	if err := s.store.UpdateBeacon(beacon); err != nil {
 		return fmt.Errorf("failed to update beacon sleep: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateBeaconMetadata updates metadata fields (like Note) for a beacon.
+func (s *beaconService) UpdateBeaconMetadata(ctx context.Context, beaconID string, updates map[string]interface{}) error {
+	beacon, err := s.store.GetBeacon(beaconID)
+	if err != nil {
+		return fmt.Errorf("beacon not found: %w", err)
+	}
+
+	if note, ok := updates["note"].(string); ok {
+		beacon.Note = note
+	}
+
+	if err := s.store.UpdateBeacon(beacon); err != nil {
+		return fmt.Errorf("failed to update beacon metadata: %w", err)
 	}
 
 	return nil

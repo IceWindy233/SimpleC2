@@ -69,20 +69,18 @@ func main() {
 	}
 	logger.Info("Database initialized successfully.")
 
+	// Create and run the WebSocket hub
+	hub := websocket.NewHub()
+	go hub.Run()
+
 	// Initialize services
 	beaconService := service.NewBeaconService(store)
 	taskService := service.NewTaskService(store)
 	listenerService := service.NewListenerService(store)
 	sessionService := service.NewSessionService(store)
-	portFwdService := service.NewInMemoryPortFwdService() // Instantiate PortFwdService
 
 	// Start session cleanup routine (run every 5 minutes)
 	sessionService.StartCleanupRoutine(5 * time.Minute)
-	logger.Info("Session cleanup routine started (runs every 5 minutes)")
-
-	// Create and run the WebSocket hub
-	hub := websocket.NewHub()
-	go hub.Run()
 
 	creds, err := loadTeamServerCreds(cfg.GRPC.Certs.ServerCert, cfg.GRPC.Certs.ServerKey, cfg.GRPC.Certs.CACert, func(serialNumber string) bool {
 		return listenerService.IsCertificateRevoked(serialNumber)
@@ -107,7 +105,7 @@ func main() {
 	)
 
 	// Correctly create an instance of the server struct with config, store, and hub
-	s := NewServer(&cfg, store, hub, listenerService, portFwdService) // Pass portFwdService to NewServer
+	s := NewServer(&cfg, store, hub, listenerService)
 	// Correctly call the registration function with the package prefix
 	bridge.RegisterTeamServerBridgeServiceServer(grpcServer, s)
 
@@ -123,7 +121,7 @@ func main() {
 	}()
 
 	go func() {
-		router := api.NewRouter(&cfg, beaconService, taskService, listenerService, sessionService, portFwdService, hub) // Pass portFwdService to NewRouter
+		router := api.NewRouter(&cfg, beaconService, taskService, listenerService, sessionService, hub)
 		logger.Infof("HTTP API server listening on %s", cfg.API.Port)
 		if err := router.Run(cfg.API.Port); err != nil {
 			logger.Fatalf("Failed to run HTTP server: %v", err)
