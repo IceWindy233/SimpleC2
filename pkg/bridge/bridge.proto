@@ -93,7 +93,6 @@ service TeamServerBridgeService {
     string listener_name = 2;                 // 处理此请求的 Listener 实例名
     string remote_addr = 3;                   // Beacon 的来源网络地址
     google.protobuf.Timestamp timestamp = 4;  // Listener 接收到请求的时间戳
-    repeated TunnelMessage outgoing_tunnel_data = 5; // Agent发送给TeamServer的隧道数据
     // map<string, google.protobuf.Value> update_metadata = 5; // 可选: 需要更新的元数据字段
   }
   
@@ -108,7 +107,6 @@ service TeamServerBridgeService {
   message CheckInBeaconResponse {
     repeated Task tasks = 1; // 原始未加密任务对象列表
     int32 new_sleep = 2;     // 可选: 新的 sleep 时间 (秒)
-    repeated TunnelMessage incoming_tunnel_data = 3; // TeamServer发送给Agent的隧道数据
   }
   
   // PushOutput 请求
@@ -183,21 +181,5 @@ service TeamServerBridgeService {
   message GetTaskedFileChunkResponse {
     bytes chunk_data = 1;     // 分片的二进制数据
   }
-
-// TunnelMessage 隧道数据消息
-message TunnelMessage {
-    string tunnel_id = 1;
-    bytes data = 2;
-    bool is_fin = 3;     // End of stream/connection close
-    bool is_error = 4;   // Indicates an error occurred
-    string error_msg = 5; // Error message
-    string target = 6;    // Target address for TunnelCommandStart (only sent by TeamServer)
-    enum CommandType {
-        START = 0;
-        DATA = 1;
-        STOP = 2;
-    }
-    CommandType command_type = 7;
-}
 
   
